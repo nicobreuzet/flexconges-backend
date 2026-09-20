@@ -10,7 +10,7 @@ const holidaysRoutes = require('./routes/holidays');
 const leaveTypesRoutes = require('./routes/leaveTypes');
 const cors = require('cors');
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors()); // autorise toutes les origines (pratique en développement)
 app.use(express.json());
