@@ -4,8 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "cross-env DOTENV_CONFIG_PATH=.env.test jest",
-    "postinstall": "prisma skills sync || exit 0"
+    "test": "cross-env DOTENV_CONFIG_PATH=.env.test jest"
   },
   "jest": {
     "setupFilesAfterEnv": [
