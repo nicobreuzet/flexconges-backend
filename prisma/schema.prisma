@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  email       String   @unique
+  password    String
+  firstName   String
+  lastName    String
+  role        String   @default("employee")
+  isActive    Boolean  @default(true)
+  phone       String?
+  team        String?
+  address     String?
+  startDate   DateTime?
+  createdAt   DateTime @default(now())
+
+  leaveRequests LeaveRequest[]
+  leaveBalances LeaveBalance[]
+}
+
+model LeaveType {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  label         String
+  color         String   @default("#3B82F6")
+  requiresProof Boolean  @default(false)
+  annualCap     Int?     // nombre de jours max par an, null = illimité
+
+  leaveRequests LeaveRequest[]
+  leaveBalances LeaveBalance[]
+}
+
+model LeaveRequest {
+  id             Int       @id @default(autoincrement())
+  startDate      DateTime
+  endDate        DateTime
+  isHalfDay      Boolean   @default(false)
+  daysCount      Float
+  status         String    @default("pending") // pending, approved, rejected, cancelled
+  comment        String?
+  managerComment String?
+  createdAt      DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id])
+  userId     Int
+
+  leaveType  LeaveType @relation(fields: [leaveTypeId], references: [id])
+  leaveTypeId Int
+}
+
+model Holiday {
+  id    Int      @id @default(autoincrement())
+  date  DateTime
+  label String
+}
+model LeaveBalance {
+  id        Int      @id @default(autoincrement())
+  year      Int
+  allocated Float
+  taken     Float    @default(0)
+  pending   Float    @default(0)
+
+  user        User      @relation(fields: [userId], references: [id])
+  userId      Int
+
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  leaveTypeId Int
+
+  @@unique([userId, leaveTypeId, year])
+}

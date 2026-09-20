@@ -1,0 +1,33 @@
+{
+  "name": "flexconges-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "cross-env DOTENV_CONFIG_PATH=.env.test jest",
+    "postinstall": "prisma skills sync || exit 0"
+  },
+  "jest": {
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/setup.js"
+    ]
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@prisma/client": "^6.10.1",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.0.10"
+  },
+  "devDependencies": {
+    "jest": "^30.5.1",
+    "prisma": "^6.10.1",
+    "supertest": "^7.2.2"
+  }
+}

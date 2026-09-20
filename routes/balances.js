@@ -1,0 +1,22 @@
+const express = require('express');
+const prisma = require('../config/prisma');
+const { authenticate, requireManager } = require('../middlewares/auth');
+const router = express.Router();
+
+router.get('/balances/me', authenticate, async (req, res) => {
+  const balances = await prisma.leaveBalance.findMany({
+    where: { userId: req.user.userId },
+    include: { leaveType: true }
+  });
+  res.json(balances);
+});
+
+// Soldes de toute l'équipe (managers uniquement)
+router.get('/balances/team', authenticate, requireManager, async (req, res) => {
+  const balances = await prisma.leaveBalance.findMany({
+    include: { leaveType: true }
+  });
+  res.json(balances);
+});
+
+module.exports = router;
