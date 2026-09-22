@@ -1,24 +1,17 @@
 const request = require('supertest');
 const app = require('../server');
+const { createCompanyWithManager, createEmployee, getLeaveTypeId } = require('./helpers');
 
 describe('Demandes de congés', () => {
   let token;
-  const testUser = {
-    email: `leave-test${Date.now()}@test.com`,
-    password: 'motdepasse123',
-    firstName: 'Test',
-    lastName: 'Leave',
-    role: 'employee'
-  };
+  let cpId;
 
   // beforeAll s'exécute UNE FOIS avant tous les tests de ce fichier
   beforeAll(async () => {
-    await request(app).post('/register').send(testUser);
-    const res = await request(app).post('/login').send({
-      email: testUser.email,
-      password: testUser.password
-    });
-    token = res.body.token;
+    const company = await createCompanyWithManager('Demandes');
+    const employee = await createEmployee(company.token);
+    token = employee.token;
+    cpId = await getLeaveTypeId(token, 'CP');
   });
 
   test('Crée une demande avec le bon nombre de jours ouvrés', async () => {
@@ -28,7 +21,7 @@ describe('Demandes de congés', () => {
       .send({
         startDate: '2027-03-01', // lundi
         endDate: '2027-03-05',   // vendredi
-        leaveTypeId: 1,
+        leaveTypeId: cpId,
         comment: 'Test automatisé'
       });
 
@@ -43,7 +36,7 @@ describe('Demandes de congés', () => {
       .send({
         startDate: '2027-04-01',
         endDate: '2027-04-05',
-        leaveTypeId: 1
+        leaveTypeId: cpId
       });
 
     expect(res.status).toBe(401);
@@ -56,7 +49,7 @@ describe('Demandes de congés', () => {
       .send({
         startDate: '2027-05-10',
         endDate: '2027-05-05',
-        leaveTypeId: 1
+        leaveTypeId: cpId
       });
 
     expect(res.status).toBe(400);
@@ -69,7 +62,7 @@ describe('Demandes de congés', () => {
       .send({
         startDate: '2027-03-03', // chevauche la première demande (1er-5 mars)
         endDate: '2027-03-08',
-        leaveTypeId: 1
+        leaveTypeId: cpId
       });
 
     expect(res.status).toBe(400);

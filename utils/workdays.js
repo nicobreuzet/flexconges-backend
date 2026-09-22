@@ -1,8 +1,20 @@
 const prisma = require('../config/prisma');
 
-async function countWorkdays(startDate, endDate) {
+// Sécurité : sans companyId, Prisma ignorerait le filtre et renverrait les données de toutes les sociétés
+function requireCompanyId(companyId) {
+  if (!Number.isInteger(companyId)) {
+    throw new Error('companyId manquant : appel refusé pour éviter un mélange de sociétés');
+  }
+}
+
+async function countWorkdays(startDate, endDate, companyId) {
+  requireCompanyId(companyId);
+
   const holidays = await prisma.holiday.findMany({
-    where: { date: { gte: new Date(startDate), lte: new Date(endDate) } }
+    where: {
+      companyId,
+      date: { gte: new Date(startDate), lte: new Date(endDate) }
+    }
   });
   const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
 
@@ -23,10 +35,13 @@ async function countWorkdays(startDate, endDate) {
   return count;
 }
 
-async function hasOverlappingRequest(userId, startDate, endDate) {
+async function hasOverlappingRequest(userId, startDate, endDate, companyId) {
+  requireCompanyId(companyId);
+
   const overlapping = await prisma.leaveRequest.findFirst({
     where: {
       userId,
+      companyId,
       status: { in: ['pending', 'approved'] },
       startDate: { lte: new Date(endDate) },
       endDate: { gte: new Date(startDate) }

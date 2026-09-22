@@ -1,20 +1,31 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('./config/prisma');
+const { createDefaultLeaveTypes } = require('./utils/defaultLeaveTypes');
 
+// Usage : node seed.js <idDeLaSociété>
 async function main() {
-  await prisma.leaveType.createMany({
-    data: [
-      { code: 'CP', label: 'Congés payés', color: '#3B82F6', annualCap: 25 },
-      { code: 'RTT', label: 'RTT', color: '#10B981', annualCap: 10 },
-      { code: 'MAL', label: 'Arrêt maladie', color: '#c0392b', requiresProof: true },
-      { code: 'EXC', label: 'Congé Exceptionnel', color: '#d97706', requiresProof: true, annualCap: 5 },
-      { code: 'TT', label: 'Télétravail', color: '#7c3aed' },
-      { code: 'CSS', label: 'Congé Sans Solde', color: '#94a3b8' }
-    ]
-  });
-  console.log('Types de congés créés !');
+  const companyId = Number(process.argv[2]);
+  if (!Number.isInteger(companyId)) {
+    console.error('Usage : node seed.js <idDeLaSociété>   (exemple : node seed.js 1)');
+    process.exit(1);
+  }
+
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  if (!company) {
+    console.error(`Aucune société avec l'id ${companyId} dans cette base.`);
+    process.exit(1);
+  }
+
+  // On affiche la base visée pour ne jamais se tromper de cible
+  const host = new URL(process.env.DATABASE_URL).hostname;
+  console.log(`Base : ${host} | Société : ${company.name} (id ${company.id})`);
+
+  const result = await createDefaultLeaveTypes(prisma, company.id);
+  console.log(`${result.count} type(s) de congé créé(s) (les types déjà présents sont ignorés).`);
 }
 
 main()
-  .catch(console.error)
+  .catch((e) => {
+    console.error('Erreur :', e);
+    process.exit(1);
+  })
   .finally(() => prisma.$disconnect());

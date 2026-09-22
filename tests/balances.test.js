@@ -1,36 +1,48 @@
 const request = require('supertest');
 const app = require('../server');
-const { createUserAndLogin } = require('./helpers');
+const { createCompanyWithManager, createEmployee, getLeaveTypeId } = require('./helpers');
 
 describe('Soldes de congés', () => {
   let token;
+  let cpId;
 
   beforeAll(async () => {
-    const employee = await createUserAndLogin('employee');
+    const company = await createCompanyWithManager('Soldes');
+    const employee = await createEmployee(company.token);
     token = employee.token;
+    cpId = await getLeaveTypeId(token, 'CP');
   });
 
-  test('Le solde est vide avant toute demande', async () => {
+  test('Un nouvel employé a ses soldes CP et RTT, sans jour en attente ni pris', async () => {
     const res = await request(app)
       .get('/balances/me')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    const codes = res.body.map(b => b.leaveType.code).sort();
+    expect(codes).toEqual(['CP', 'RTT']);
+    res.body.forEach(b => {
+      expect(b.pending).toBe(0);
+      expect(b.taken).toBe(0);
+    });
   });
 
   test('Le solde passe en "pending" après une demande', async () => {
-    await request(app)
+    const created = await request(app)
       .post('/leave-requests')
       .set('Authorization', `Bearer ${token}`)
-      .send({ startDate: '2027-07-05', endDate: '2027-07-09', leaveTypeId: 1 });
+      .send({ startDate: '2027-07-05', endDate: '2027-07-09', leaveTypeId: cpId });
+    expect(created.status).toBe(201);
 
     const res = await request(app)
       .get('/balances/me')
       .set('Authorization', `Bearer ${token}`);
 
-    expect(res.body[0].pending).toBe(5);
-    expect(res.body[0].taken).toBe(0);
+    // La demande porte sur 2027 : on cherche le solde CP de CETTE année-là
+    const cp = res.body.find(b => b.leaveType.code === 'CP' && b.year === 2027);
+    expect(cp).toBeDefined();
+    expect(cp.pending).toBe(5);
+    expect(cp.taken).toBe(0);
   });
 
   test('Refuse une demande si le solde est insuffisant', async () => {
@@ -38,7 +50,7 @@ describe('Soldes de congés', () => {
     const res = await request(app)
       .post('/leave-requests')
       .set('Authorization', `Bearer ${token}`)
-      .send({ startDate: '2027-08-02', endDate: '2028-01-29', leaveTypeId: 1 }); // très longue période
+      .send({ startDate: '2027-08-02', endDate: '2028-01-29', leaveTypeId: cpId }); // très longue période
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Solde insuffisant/);
