@@ -8,9 +8,16 @@ datasource db {
 }
 
 model Company {
-  id        Int      @id @default(autoincrement())
-  name      String
-  createdAt DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  name       String
+  sector     String?
+  siret      String?
+  barreau    String?
+  convention String?
+  taille     String?
+  pays       String?
+  adresse    String?
+  createdAt  DateTime @default(now())
 
   users         User[]
   leaveTypes    LeaveType[]

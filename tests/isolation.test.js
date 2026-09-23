@@ -139,4 +139,20 @@ describe('Isolation entre sociétés', () => {
     const res = await request(app).get('/users').set(auth(old));
     expect(res.status).toBe(401);
   });
+
+  test("PATCH /company modifie la propre societe du manager, jamais une autre", async () => {
+  const before = await request(app).get('/leave-types').set(auth(B.token)); // sanity: B existe bien
+  expect(before.status).toBe(200);
+
+  const res = await request(app).patch('/company').set(auth(B.token))
+    .send({ sector: 'tech', taille: '6-20' });
+  expect(res.status).toBe(200);
+  expect(res.body.id).toBe(B.company.id);
+  expect(res.body.id).not.toBe(A.company.id);
+
+  // La route ne lit jamais d'id envoyé par le client : aucun moyen de cibler la societe de A
+  const attempt = await request(app).patch('/company').set(auth(B.token))
+    .send({ id: A.company.id, sector: 'hack' });
+  expect(attempt.body.id).toBe(B.company.id); // "id" dans le corps est ignore, sans effet
+});
 });
