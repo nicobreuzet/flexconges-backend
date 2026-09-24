@@ -155,4 +155,24 @@ describe('Isolation entre sociétés', () => {
     .send({ id: A.company.id, sector: 'hack' });
   expect(attempt.body.id).toBe(B.company.id); // "id" dans le corps est ignore, sans effet
 });
+test("B ne voit pas les equipes de A, et ne peut ni les modifier, ni les supprimer, ni les utiliser", async () => {
+  const teamA = await request(app).post('/teams').set(auth(A.token)).send({ name: 'Equipe A' });
+  expect(teamA.status).toBe(201);
+
+  const list = await request(app).get('/teams').set(auth(B.token));
+  expect(list.body.map(t => t.id)).not.toContain(teamA.body.id);
+
+  const put = await request(app).put(`/teams/${teamA.body.id}`).set(auth(B.token)).send({ name: 'Hack' });
+  const del = await request(app).delete(`/teams/${teamA.body.id}`).set(auth(B.token));
+  expect([put.status, del.status]).toEqual([404, 404]);
+
+  const badUser = await request(app).post('/users').set(auth(B.token))
+    .send({ email: `hack${Date.now()}@test.com`, firstName: 'H', lastName: 'K', role: 'employee', teamId: teamA.body.id });
+  expect(badUser.status).toBe(404);
+
+  // L'equipe de A est intacte
+  const stillThere = await request(app).get('/teams').set(auth(A.token));
+  const t = stillThere.body.find(x => x.id === teamA.body.id);
+  expect(t.name).toBe('Equipe A');
+});
 });

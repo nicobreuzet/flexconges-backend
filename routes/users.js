@@ -7,14 +7,26 @@ const router = express.Router();
 
 const SAFE_USER_FIELDS = {
   id: true, email: true, firstName: true, lastName: true,
-  role: true, isActive: true, phone: true, team: true,
+  role: true, isActive: true, phone: true, team: true, teamId: true,
   address: true, startDate: true, createdAt: true
 };
 
 // Cherche un utilisateur par son id, mais UNIQUEMENT dans la société de l'appelant.
-// Renvoie null si l'utilisateur n'existe pas ou appartient à une autre société.
 function findUserInCompany(id, companyId) {
   return prisma.user.findFirst({ where: { id: Number(id), companyId } });
+}
+
+// Vérifie que teamId (s'il est fourni) appartient à la société de l'appelant, et renvoie
+// { teamId, team } prêt à être fusionné dans un `data` de création/modification.
+// teamId === null signifie "retirer l'équipe" ; teamId === undefined signifie "ne rien changer".
+async function resolveTeamFields(teamId, companyId) {
+  if (teamId === undefined) return {};
+  if (teamId === null) return { teamId: null, team: null };
+
+  const team = await prisma.team.findFirst({ where: { id: Number(teamId), companyId } });
+  if (!team) throw Object.assign(new Error('Équipe introuvable'), { status: 404 });
+
+  return { teamId: team.id, team: team.name };
 }
 
 router.get('/me', authenticate, async (req, res) => {
@@ -35,11 +47,13 @@ router.get('/users', authenticate, requireManager, async (req, res) => {
 router.post('/users', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { email, firstName, lastName, role, phone, team, address, startDate, cpAlloc, rttAlloc } = req.body;
+    const { email, firstName, lastName, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
 
     if (!email || !firstName || !lastName || !role) {
       return res.status(400).json({ error: 'Email, prénom, nom et rôle sont obligatoires' });
     }
+
+    const teamFields = await resolveTeamFields(teamId, companyId);
 
     const tempPassword = Math.random().toString(36).slice(-10);
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
@@ -49,10 +63,10 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
         email, firstName, lastName, role,
         password: hashedPassword,
         phone: phone || null,
-        team: team || null,
         address: address || null,
         startDate: startDate ? new Date(startDate) : null,
-        companyId
+        companyId,
+        ...teamFields
       },
       select: SAFE_USER_FIELDS
     });
@@ -77,7 +91,7 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 
     res.status(201).json({ ...user, tempPassword });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(error.status || 400).json({ error: error.message });
   }
 });
 
@@ -85,19 +99,21 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 router.put('/users/:id', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { firstName, lastName, email, role, phone, team, address, startDate, cpAlloc, rttAlloc } = req.body;
+    const { firstName, lastName, email, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
 
     const existing = await findUserInCompany(req.params.id, companyId);
     if (!existing) return res.status(404).json({ error: 'Utilisateur introuvable' });
+
+    const teamFields = await resolveTeamFields(teamId, companyId);
 
     const user = await prisma.user.update({
       where: { id: existing.id },
       data: {
         firstName, lastName, email, role,
         phone: phone || null,
-        team: team || null,
         address: address || null,
-        startDate: startDate ? new Date(startDate) : null
+        startDate: startDate ? new Date(startDate) : null,
+        ...teamFields
       },
       select: SAFE_USER_FIELDS
     });
@@ -126,7 +142,7 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(error.status || 400).json({ error: error.message });
   }
 });
 

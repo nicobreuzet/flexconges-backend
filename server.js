@@ -9,6 +9,7 @@ const balancesRoutes = require('./routes/balances');
 const holidaysRoutes = require('./routes/holidays');
 const leaveTypesRoutes = require('./routes/leaveTypes');
 const companyRoutes = require('./routes/company');
+const teamsRoutes = require('./routes/teams');
 const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,6 +28,7 @@ app.use('/', balancesRoutes);
 app.use('/', holidaysRoutes);
 app.use('/', leaveTypesRoutes);
 app.use('/', companyRoutes);
+app.use('/', teamsRoutes);
 
 if (require.main === module) {
   app.listen(PORT, () => {
