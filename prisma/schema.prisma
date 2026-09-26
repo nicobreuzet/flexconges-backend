@@ -17,6 +17,9 @@ model Company {
   taille     String?
   pays       String?
   adresse    String?
+  brandingConfig Json?
+  roleConfig     Json?
+  rulesConfig    Json?
   createdAt  DateTime @default(now())
 
   users         User[]
