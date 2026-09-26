@@ -54,6 +54,8 @@ model User {
   address     String?
   startDate   DateTime?
   createdAt   DateTime  @default(now())
+  resetToken        String?   @unique
+  resetTokenExpires  DateTime?
 
   company     Company   @relation(fields: [companyId], references: [id])
   companyId   Int
