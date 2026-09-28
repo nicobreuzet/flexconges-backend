@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../server');
+const prisma = require('../config/prisma');
 
 function uniq() {
   return `${Date.now()}${Math.floor(Math.random() * 1000000)}`;
@@ -22,9 +23,15 @@ async function createCompanyWithManager(label = 'A') {
   return { company: reg.body.company, manager: reg.body.user, email, password, token: login.body.token };
 }
 
-// Crée un employé dans la société du manager (via POST /users), puis le connecte
+// Crée un employé dans la société du manager (via POST /users), puis le connecte.
+// Depuis le chantier "invitation par email" : POST /users ne renvoie plus de mot de
+// passe (personne ne le connaît). Pour se connecter dans les tests, on suit le même
+// chemin qu'un vrai collaborateur : on récupère le jeton d'invitation directement en
+// base (un test a un accès direct à la base, contrairement à un collaborateur réel),
+// puis on passe par POST /reset-password, exactement comme "mot de passe oublié".
 async function createEmployee(managerToken) {
   const email = `employee${uniq()}@test.com`;
+  const testPassword = 'MotDePasseTest123!';
 
   const res = await request(app)
     .post('/users')
@@ -34,7 +41,19 @@ async function createEmployee(managerToken) {
     throw new Error(`Création d'employé échouée : ${res.status} ${JSON.stringify(res.body)}`);
   }
 
-  const login = await request(app).post('/login').send({ email, password: res.body.tempPassword });
+  const created = await prisma.user.findUnique({ where: { email } });
+  if (!created || !created.resetToken) {
+    throw new Error(`Jeton d'invitation introuvable pour ${email}`);
+  }
+
+  const reset = await request(app)
+    .post('/reset-password')
+    .send({ token: created.resetToken, password: testPassword });
+  if (reset.status !== 200) {
+    throw new Error(`Définition du mot de passe via l'invitation échouée : ${reset.status} ${JSON.stringify(reset.body)}`);
+  }
+
+  const login = await request(app).post('/login').send({ email, password: testPassword });
   return { user: res.body, email, token: login.body.token };
 }
 

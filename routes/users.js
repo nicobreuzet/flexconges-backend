@@ -1,6 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const prisma = require('../config/prisma');
+const { sendMail } = require('../config/mailer');
 const { authenticate, requireManager } = require('../middlewares/auth');
 
 const router = express.Router();
@@ -10,6 +12,11 @@ const SAFE_USER_FIELDS = {
   role: true, isActive: true, phone: true, team: true, teamId: true,
   address: true, startDate: true, createdAt: true
 };
+
+// Durée de validité du lien d'invitation envoyé à un nouveau collaborateur : 7 jours
+// (plus long que "mot de passe oublié", qui n'est valable que 15 minutes — un collaborateur
+// ne consulte pas forcément son email dans la minute qui suit la création de son compte).
+const INVITATION_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Cherche un utilisateur par son id, mais UNIQUEMENT dans la société de l'appelant.
 function findUserInCompany(id, companyId) {
@@ -43,7 +50,10 @@ router.get('/users', authenticate, requireManager, async (req, res) => {
   res.json(users);
 });
 
-// Créer un utilisateur (managers uniquement) — avec mot de passe temporaire généré
+// Créer un utilisateur (managers uniquement).
+// Personne — pas même le manager qui crée le compte — ne connaît le mot de passe initial :
+// un email d'invitation est envoyé au collaborateur, avec un lien à usage unique lui
+// permettant de choisir lui-même son mot de passe (même mécanisme que "mot de passe oublié").
 router.post('/users', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
@@ -55,13 +65,20 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 
     const teamFields = await resolveTeamFields(teamId, companyId);
 
-    const tempPassword = Math.random().toString(36).slice(-10);
-    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+    // Mot de passe aléatoire, jamais révélé à personne : le champ est obligatoire en base,
+    // mais l'accès réel au compte passera par le lien d'invitation ci-dessous.
+    const randomPassword = crypto.randomBytes(24).toString('hex');
+    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+    const invitationToken = crypto.randomBytes(32).toString('hex');
+    const invitationExpires = new Date(Date.now() + INVITATION_TOKEN_TTL_MS);
 
     const user = await prisma.user.create({
       data: {
         email, firstName, lastName, role,
         password: hashedPassword,
+        resetToken: invitationToken,
+        resetTokenExpires: invitationExpires,
         phone: phone || null,
         address: address || null,
         startDate: startDate ? new Date(startDate) : null,
@@ -89,7 +106,20 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
     }
     await Promise.all(balanceCreates);
 
-    res.status(201).json({ ...user, tempPassword });
+    // Affiché dans la console du serveur, pratique pour les tests sans avoir à ouvrir l'e-mail
+    if (process.env.FRONT_URL) {
+      console.log(`Invitation pour ${email} : ${process.env.FRONT_URL}?resetToken=${invitationToken} (valable 7 jours)`);
+    } else {
+      console.log(`Jeton d'invitation pour ${email} : ${invitationToken} (valable 7 jours, FRONT_URL non défini)`);
+    }
+
+    sendMail(
+      email,
+      'Votre accès FlexCongés',
+      `Bonjour ${firstName},\n\nUn compte vient d'être créé pour vous sur FlexCongés. Cliquez sur le lien ci-dessous pour choisir votre mot de passe (valable 7 jours) :\n\n${process.env.FRONT_URL || '(URL non configurée)'}?resetToken=${invitationToken}\n\nSi vous ne vous attendiez pas à cet e-mail, vous pouvez l'ignorer.`
+    ).catch(err => console.error('Erreur envoi email invitation:', err));
+
+    res.status(201).json({ ...user, invitationSent: true });
   } catch (error) {
     res.status(error.status || 400).json({ error: error.message });
   }
