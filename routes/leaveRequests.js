@@ -5,16 +5,35 @@ const { countWorkdays, hasOverlappingRequest } = require('../utils/workdays');
 const { sendMail } = require('../config/mailer');
 const router = express.Router();
 
+const VALID_HALVES = ['morning', 'afternoon'];
+
+// Valide et calcule le nombre de jours pour une période avec demi-journées.
+// Renvoie soit { ok: true, daysCount, startHalf, endHalf }, soit { ok: false, error }.
+async function computeDaysCount(startDate, endDate, companyId, rawStartHalf, rawEndHalf) {
+  const startHalf = rawStartHalf || 'morning';
+  const endHalf = rawEndHalf || 'afternoon';
+
+  if (!VALID_HALVES.includes(startHalf) || !VALID_HALVES.includes(endHalf)) {
+    return { ok: false, error: 'startHalf/endHalf doivent valoir "morning" ou "afternoon"' };
+  }
+
+  const daysCount = await countWorkdays(startDate, endDate, companyId, startHalf, endHalf);
+  if (daysCount === 0) {
+    return { ok: false, error: 'Cette période ne correspond à aucun jour travaillé, ou la combinaison de demi-journées est incohérente' };
+  }
+
+  return { ok: true, daysCount, startHalf, endHalf };
+}
+
 router.post('/leave-requests', authenticate, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { startDate, endDate, leaveTypeId, comment, asDraft } = req.body;
+    const { startDate, endDate, leaveTypeId, comment, asDraft, startHalf, endHalf } = req.body;
 
     if (new Date(endDate) < new Date(startDate)) {
       return res.status(400).json({ error: 'La date de fin doit être après la date de début' });
     }
 
-    // Le type de congé doit exister ET appartenir à la société de l'appelant
     const typeId = Number(leaveTypeId);
     if (!Number.isInteger(typeId)) {
       return res.status(400).json({ error: 'Type de congé obligatoire' });
@@ -22,7 +41,10 @@ router.post('/leave-requests', authenticate, async (req, res) => {
     const leaveType = await prisma.leaveType.findFirst({ where: { id: typeId, companyId } });
     if (!leaveType) return res.status(404).json({ error: 'Type de congé introuvable' });
 
-    const daysCount = await countWorkdays(startDate, endDate, companyId);
+    const computed = await computeDaysCount(startDate, endDate, companyId, startHalf, endHalf);
+    if (!computed.ok) return res.status(400).json({ error: computed.error });
+    const { daysCount, startHalf: sh, endHalf: eh } = computed;
+    const isHalfDay = sh !== 'morning' || eh !== 'afternoon';
 
     // Un brouillon est enregistré tel quel : pas de vérification de chevauchement,
     // pas de vérification de solde, pas de notification aux managers.
@@ -31,7 +53,7 @@ router.post('/leave-requests', authenticate, async (req, res) => {
         data: {
           startDate: new Date(startDate), endDate: new Date(endDate),
           daysCount, comment, userId: req.user.userId, leaveTypeId: typeId, companyId,
-          status: 'brouillon'
+          status: 'brouillon', startHalf: sh, endHalf: eh, isHalfDay
         },
         include: { leaveType: true }
       });
@@ -69,7 +91,8 @@ router.post('/leave-requests', authenticate, async (req, res) => {
       prisma.leaveRequest.create({
         data: {
           startDate: new Date(startDate), endDate: new Date(endDate),
-          daysCount, comment, userId: req.user.userId, leaveTypeId: typeId, companyId
+          daysCount, comment, userId: req.user.userId, leaveTypeId: typeId, companyId,
+          startHalf: sh, endHalf: eh, isHalfDay
         },
         include: { leaveType: true }
       }),
@@ -283,7 +306,7 @@ router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
   }
 });
 
-// Modifier un brouillon (pas de nouvelle vérification de solde ou de chevauchement, ce sera fait à la soumission)
+// Modifier un brouillon
 router.put('/leave-requests/:id', authenticate, async (req, res) => {
   try {
     const companyId = req.user.companyId;
@@ -298,7 +321,8 @@ router.put('/leave-requests/:id', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Seul un brouillon peut être modifié' });
     }
 
-    const { startDate, endDate, leaveTypeId, comment } = req.body;
+    const { startDate, endDate, leaveTypeId, comment, startHalf, endHalf } = req.body;
+
     if (new Date(endDate) < new Date(startDate)) {
       return res.status(400).json({ error: 'La date de fin doit être après la date de début' });
     }
@@ -309,13 +333,16 @@ router.put('/leave-requests/:id', authenticate, async (req, res) => {
     const leaveType = await prisma.leaveType.findFirst({ where: { id: typeId, companyId } });
     if (!leaveType) return res.status(404).json({ error: 'Type de congé introuvable' });
 
-    const daysCount = await countWorkdays(startDate, endDate, companyId);
+    const computed = await computeDaysCount(startDate, endDate, companyId, startHalf, endHalf);
+    if (!computed.ok) return res.status(400).json({ error: computed.error });
+    const { daysCount, startHalf: sh, endHalf: eh } = computed;
+    const isHalfDay = sh !== 'morning' || eh !== 'afternoon';
 
     const updated = await prisma.leaveRequest.update({
       where: { id: existingRequest.id },
       data: {
         startDate: new Date(startDate), endDate: new Date(endDate),
-        daysCount, comment, leaveTypeId: typeId
+        daysCount, comment, leaveTypeId: typeId, startHalf: sh, endHalf: eh, isHalfDay
       },
       include: { leaveType: true }
     });
@@ -353,7 +380,7 @@ router.get('/leave-requests/all', authenticate, async (req, res) => {
   const requests = await prisma.leaveRequest.findMany({
     where: {
       companyId: req.user.companyId,
-      status: { in: ['pending', 'approved'] } // on ignore refusées/annulées pour le calendrier
+      status: { in: ['pending', 'approved'] }
     },
     include: {
       leaveType: true,
