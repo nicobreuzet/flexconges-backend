@@ -216,3 +216,117 @@ describe('Brouillons de demande', () => {
     expect(res.body.error).toMatch(/brouillon/);
   });
 });
+
+describe('Demandes de congé avec demi-journées', () => {
+  let token, cpId;
+
+  beforeAll(async () => {
+    const company = await createCompanyWithManager('DemiJournees');
+    const employee = await createEmployee(company.token);
+    token = employee.token;
+    cpId = await getLeaveTypeId(token, 'CP');
+  });
+
+  test('Demi-journée du matin sur un seul jour = 0,5j', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-05-10', endDate: '2028-05-10', leaveTypeId: cpId,
+        startHalf: 'morning', endHalf: 'morning'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.daysCount).toBe(0.5);
+  });
+
+  test("Demi-journée de l'après-midi sur un seul jour = 0,5j", async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-05-17', endDate: '2028-05-17', leaveTypeId: cpId,
+        startHalf: 'afternoon', endHalf: 'afternoon'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.daysCount).toBe(0.5);
+  });
+
+  test("Refuse la combinaison incohérente après-midi → matin sur un seul jour", async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-05-18', endDate: '2028-05-18', leaveTypeId: cpId,
+        startHalf: 'afternoon', endHalf: 'morning'
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/incohérente/);
+  });
+
+  test('Lundi à vendredi, fin le vendredi matin = 4,5j', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-05-01', endDate: '2028-05-05', leaveTypeId: cpId,
+        endHalf: 'morning'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.daysCount).toBe(4.5);
+  });
+
+  test('Jeudi après-midi + vendredi = 1,5j', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-05-25', endDate: '2028-05-26', leaveTypeId: cpId,
+        startHalf: 'afternoon'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.daysCount).toBe(1.5);
+  });
+
+  test('Mercredi après-midi + jeudi + vendredi = 2,5j', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-06-07', endDate: '2028-06-09', leaveTypeId: cpId,
+        startHalf: 'afternoon'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.daysCount).toBe(2.5);
+  });
+
+  test('Refuse une demi-journée posée un jour non travaillé (samedi)', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-05-06', endDate: '2028-05-06', leaveTypeId: cpId,
+        startHalf: 'morning', endHalf: 'morning'
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  test('Refuse une valeur startHalf/endHalf invalide', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2028-06-12', endDate: '2028-06-12', leaveTypeId: cpId,
+        startHalf: 'nuit', endHalf: 'afternoon'
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/morning.*afternoon/);
+  });
+});
