@@ -7,7 +7,7 @@ function requireCompanyId(companyId) {
   }
 }
 
-async function countWorkdays(startDate, endDate, companyId) {
+async function countWorkdays(startDate, endDate, companyId, startHalf = 'morning', endHalf = 'afternoon') {
   requireCompanyId(companyId);
 
   const holidays = await prisma.holiday.findMany({
@@ -18,20 +18,41 @@ async function countWorkdays(startDate, endDate, companyId) {
   });
   const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
 
-  let count = 0;
-  const current = new Date(startDate);
+  const start = new Date(startDate);
   const end = new Date(endDate);
+  const sameDay = start.toDateString() === end.toDateString();
 
+  if (sameDay) {
+    const dayOfWeek = start.getDay();
+    const dateStr = start.toISOString().split('T')[0];
+    if (dayOfWeek === 0 || dayOfWeek === 6 || holidayDates.includes(dateStr)) {
+      return 0;
+    }
+    if (startHalf === 'morning' && endHalf === 'afternoon') return 1;
+    if (startHalf === 'afternoon' && endHalf === 'morning') return 0; // incohérent
+    return 0.5; // matin→matin ou après-midi→après-midi
+  }
+
+  let count = 0;
+  const current = new Date(start);
   while (current <= end) {
     const dayOfWeek = current.getDay();
-    const currentDateStr = current.toISOString().split('T')[0];
+    const dateStr = current.toISOString().split('T')[0];
+    const isHoliday = holidayDates.includes(dateStr);
 
-    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidayDates.includes(currentDateStr)) {
-      count++;
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isHoliday) {
+      const isFirst = current.toDateString() === start.toDateString();
+      const isLast = current.toDateString() === end.toDateString();
+      if (isFirst && startHalf === 'afternoon') {
+        count += 0.5;
+      } else if (isLast && endHalf === 'morning') {
+        count += 0.5;
+      } else {
+        count += 1;
+      }
     }
     current.setDate(current.getDate() + 1);
   }
-
   return count;
 }
 

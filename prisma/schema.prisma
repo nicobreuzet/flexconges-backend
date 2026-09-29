@@ -94,6 +94,8 @@ model LeaveRequest {
   startDate      DateTime
   endDate        DateTime
   isHalfDay      Boolean   @default(false)
+  startHalf      String    @default("morning")   // 'morning' | 'afternoon'
+  endHalf        String    @default("afternoon")  // 'morning' | 'afternoon'
   daysCount      Float
   status         String    @default("pending")
   comment        String?
