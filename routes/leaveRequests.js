@@ -8,7 +8,7 @@ const router = express.Router();
 router.post('/leave-requests', authenticate, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { startDate, endDate, leaveTypeId, comment } = req.body;
+    const { startDate, endDate, leaveTypeId, comment, asDraft } = req.body;
 
     if (new Date(endDate) < new Date(startDate)) {
       return res.status(400).json({ error: 'La date de fin doit être après la date de début' });
@@ -22,12 +22,27 @@ router.post('/leave-requests', authenticate, async (req, res) => {
     const leaveType = await prisma.leaveType.findFirst({ where: { id: typeId, companyId } });
     if (!leaveType) return res.status(404).json({ error: 'Type de congé introuvable' });
 
+    const daysCount = await countWorkdays(startDate, endDate, companyId);
+
+    // Un brouillon est enregistré tel quel : pas de vérification de chevauchement,
+    // pas de vérification de solde, pas de notification aux managers.
+    if (asDraft) {
+      const draft = await prisma.leaveRequest.create({
+        data: {
+          startDate: new Date(startDate), endDate: new Date(endDate),
+          daysCount, comment, userId: req.user.userId, leaveTypeId: typeId, companyId,
+          status: 'brouillon'
+        },
+        include: { leaveType: true }
+      });
+      return res.status(201).json(draft);
+    }
+
     const overlap = await hasOverlappingRequest(req.user.userId, startDate, endDate, companyId);
     if (overlap) {
       return res.status(400).json({ error: 'Vous avez déjà une demande sur cette période' });
     }
 
-    const daysCount = await countWorkdays(startDate, endDate, companyId);
     const year = new Date(startDate).getFullYear();
 
     let balance = await prisma.leaveBalance.findUnique({
@@ -114,7 +129,6 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
       return res.status(400).json({ error: 'La décision doit être "approved" ou "rejected"' });
     }
 
-    // La demande doit appartenir à la société du manager
     const existingRequest = await prisma.leaveRequest.findFirst({
       where: { id: Number(id), companyId: req.user.companyId }
     });
@@ -145,7 +159,6 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
 
     res.json(updatedRequest);
 
-    // Notification email à l'employé
     const statusLabel = decision === 'approved' ? 'approuvée ✅' : 'refusée ❌';
     sendMail(
       updatedRequest.user.email,
@@ -193,6 +206,143 @@ router.patch('/leave-requests/:id/cancel', authenticate, async (req, res) => {
     ]);
 
     res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Soumettre un brouillon : lance les vraies vérifications puis le transforme en demande en attente
+router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const existingRequest = await prisma.leaveRequest.findFirst({
+      where: { id: Number(req.params.id), companyId }
+    });
+    if (!existingRequest) return res.status(404).json({ error: 'Demande introuvable' });
+    if (existingRequest.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Vous ne pouvez soumettre que vos propres brouillons' });
+    }
+    if (existingRequest.status !== 'brouillon') {
+      return res.status(400).json({ error: 'Seul un brouillon peut être soumis' });
+    }
+
+    const leaveType = await prisma.leaveType.findFirst({ where: { id: existingRequest.leaveTypeId, companyId } });
+
+    const overlap = await hasOverlappingRequest(
+      req.user.userId, existingRequest.startDate, existingRequest.endDate, companyId
+    );
+    if (overlap) {
+      return res.status(400).json({ error: 'Vous avez déjà une demande sur cette période' });
+    }
+
+    const year = existingRequest.startDate.getFullYear();
+    let balance = await prisma.leaveBalance.findUnique({
+      where: { userId_leaveTypeId_year: { userId: req.user.userId, leaveTypeId: existingRequest.leaveTypeId, year } }
+    });
+    if (!balance) {
+      balance = await prisma.leaveBalance.create({
+        data: {
+          userId: req.user.userId, leaveTypeId: existingRequest.leaveTypeId, year, companyId,
+          allocated: leaveType.annualCap || 0
+        }
+      });
+    }
+
+    const availableDays = balance.allocated - balance.taken - balance.pending;
+    if (leaveType.annualCap && existingRequest.daysCount > availableDays) {
+      return res.status(400).json({
+        error: `Solde insuffisant. Jours disponibles : ${availableDays}, demandés : ${existingRequest.daysCount}`
+      });
+    }
+
+    const [updatedRequest] = await prisma.$transaction([
+      prisma.leaveRequest.update({
+        where: { id: existingRequest.id },
+        data: { status: 'pending' },
+        include: { leaveType: true }
+      }),
+      prisma.leaveBalance.update({
+        where: { id: balance.id },
+        data: { pending: { increment: existingRequest.daysCount } }
+      })
+    ]);
+
+    res.json(updatedRequest);
+
+    const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true, companyId } });
+    const requester = await prisma.user.findUnique({ where: { id: req.user.userId } });
+    for (const manager of managers) {
+      sendMail(
+        manager.email,
+        'Nouvelle demande de congé',
+        `${requester.firstName} ${requester.lastName} a demandé ${existingRequest.daysCount} jour(s) de congé du ${existingRequest.startDate.toLocaleDateString()} au ${existingRequest.endDate.toLocaleDateString()}.\n\nType : ${leaveType.label}\nCommentaire : ${existingRequest.comment || 'Aucun'}`
+      ).catch(err => console.error('Erreur envoi email:', err));
+    }
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Modifier un brouillon (pas de nouvelle vérification de solde ou de chevauchement, ce sera fait à la soumission)
+router.put('/leave-requests/:id', authenticate, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const existingRequest = await prisma.leaveRequest.findFirst({
+      where: { id: Number(req.params.id), companyId }
+    });
+    if (!existingRequest) return res.status(404).json({ error: 'Demande introuvable' });
+    if (existingRequest.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Vous ne pouvez modifier que vos propres brouillons' });
+    }
+    if (existingRequest.status !== 'brouillon') {
+      return res.status(400).json({ error: 'Seul un brouillon peut être modifié' });
+    }
+
+    const { startDate, endDate, leaveTypeId, comment } = req.body;
+    if (new Date(endDate) < new Date(startDate)) {
+      return res.status(400).json({ error: 'La date de fin doit être après la date de début' });
+    }
+    const typeId = Number(leaveTypeId);
+    if (!Number.isInteger(typeId)) {
+      return res.status(400).json({ error: 'Type de congé obligatoire' });
+    }
+    const leaveType = await prisma.leaveType.findFirst({ where: { id: typeId, companyId } });
+    if (!leaveType) return res.status(404).json({ error: 'Type de congé introuvable' });
+
+    const daysCount = await countWorkdays(startDate, endDate, companyId);
+
+    const updated = await prisma.leaveRequest.update({
+      where: { id: existingRequest.id },
+      data: {
+        startDate: new Date(startDate), endDate: new Date(endDate),
+        daysCount, comment, leaveTypeId: typeId
+      },
+      include: { leaveType: true }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Supprimer un brouillon
+router.delete('/leave-requests/:id', authenticate, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const existingRequest = await prisma.leaveRequest.findFirst({
+      where: { id: Number(req.params.id), companyId }
+    });
+    if (!existingRequest) return res.status(404).json({ error: 'Demande introuvable' });
+    if (existingRequest.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Vous ne pouvez supprimer que vos propres brouillons' });
+    }
+    if (existingRequest.status !== 'brouillon') {
+      return res.status(400).json({ error: 'Seul un brouillon peut être supprimé' });
+    }
+
+    await prisma.leaveRequest.delete({ where: { id: existingRequest.id } });
+    res.status(204).end();
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

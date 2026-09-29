@@ -6,7 +6,6 @@ describe('Demandes de congés', () => {
   let token;
   let cpId;
 
-  // beforeAll s'exécute UNE FOIS avant tous les tests de ce fichier
   beforeAll(async () => {
     const company = await createCompanyWithManager('Demandes');
     const employee = await createEmployee(company.token);
@@ -19,8 +18,8 @@ describe('Demandes de congés', () => {
       .post('/leave-requests')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        startDate: '2027-03-01', // lundi
-        endDate: '2027-03-05',   // vendredi
+        startDate: '2027-03-01',
+        endDate: '2027-03-05',
         leaveTypeId: cpId,
         comment: 'Test automatisé'
       });
@@ -60,12 +59,160 @@ describe('Demandes de congés', () => {
       .post('/leave-requests')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        startDate: '2027-03-03', // chevauche la première demande (1er-5 mars)
+        startDate: '2027-03-03',
         endDate: '2027-03-08',
         leaveTypeId: cpId
       });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/déjà une demande/);
+  });
+});
+
+describe('Brouillons de demande', () => {
+  let token, otherToken, cpId;
+
+  beforeAll(async () => {
+    const company = await createCompanyWithManager('Brouillons');
+    const employee = await createEmployee(company.token);
+    const otherEmployee = await createEmployee(company.token);
+    token = employee.token;
+    otherToken = otherEmployee.token;
+    cpId = await getLeaveTypeId(token, 'CP');
+  });
+
+  test('Crée un brouillon sans vérifier le solde ni les chevauchements', async () => {
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2027-06-01',
+        endDate: '2027-06-05',
+        leaveTypeId: cpId,
+        comment: 'Brouillon test',
+        asDraft: true
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('brouillon');
+  });
+
+  test('Un brouillon peut chevaucher une autre demande sans être refusé', async () => {
+    await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-07-01', endDate: '2027-07-05', leaveTypeId: cpId });
+
+    const res = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        startDate: '2027-07-03', endDate: '2027-07-08', leaveTypeId: cpId, asDraft: true
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('brouillon');
+  });
+
+  test('Modifie un brouillon existant', async () => {
+    const createRes = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-08-02', endDate: '2027-08-04', leaveTypeId: cpId, asDraft: true });
+
+    const draftId = createRes.body.id;
+
+    const res = await request(app)
+      .put(`/leave-requests/${draftId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-08-02', endDate: '2027-08-06', leaveTypeId: cpId, comment: 'Modifié' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.daysCount).toBe(5);
+    expect(res.body.comment).toBe('Modifié');
+  });
+
+  test("Refuse de modifier le brouillon d'un autre utilisateur", async () => {
+    const createRes = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-09-06', endDate: '2027-09-08', leaveTypeId: cpId, asDraft: true });
+
+    const res = await request(app)
+      .put(`/leave-requests/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ startDate: '2027-09-06', endDate: '2027-09-08', leaveTypeId: cpId });
+
+    expect(res.status).toBe(403);
+  });
+
+  test('Soumet un brouillon : il devient une vraie demande en attente', async () => {
+    const createRes = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-10-04', endDate: '2027-10-08', leaveTypeId: cpId, asDraft: true });
+
+    const res = await request(app)
+      .patch(`/leave-requests/${createRes.body.id}/submit`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('pending');
+  });
+
+  test('Refuse de soumettre un brouillon qui chevauche une demande devenue existante entretemps', async () => {
+    await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-11-02', endDate: '2027-11-04', leaveTypeId: cpId });
+
+    const draftRes = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-11-03', endDate: '2027-11-05', leaveTypeId: cpId, asDraft: true });
+
+    const res = await request(app)
+      .patch(`/leave-requests/${draftRes.body.id}/submit`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/déjà une demande/);
+  });
+
+  test('Supprime un brouillon', async () => {
+    const createRes = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2027-12-06', endDate: '2027-12-08', leaveTypeId: cpId, asDraft: true });
+
+    const delRes = await request(app)
+      .delete(`/leave-requests/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(delRes.status).toBe(204);
+
+    const listRes = await request(app)
+      .get('/leave-requests/me')
+      .set('Authorization', `Bearer ${token}`);
+    const stillThere = listRes.body.some(r => r.id === createRes.body.id);
+    expect(stillThere).toBe(false);
+  });
+
+  test("Refuse de soumettre une demande qui n'est plus un brouillon", async () => {
+    const createRes = await request(app)
+      .post('/leave-requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ startDate: '2028-01-03', endDate: '2028-01-05', leaveTypeId: cpId, asDraft: true });
+
+    await request(app)
+      .patch(`/leave-requests/${createRes.body.id}/submit`)
+      .set('Authorization', `Bearer ${token}`);
+
+    const res = await request(app)
+      .patch(`/leave-requests/${createRes.body.id}/submit`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/brouillon/);
   });
 });
