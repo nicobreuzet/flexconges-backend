@@ -2,11 +2,14 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { authenticator } = require('otplib');
 const prisma = require('../config/prisma');
 const { createDefaultLeaveTypes } = require('../utils/defaultLeaveTypes');
 const { sendMail } = require('../config/mailer');
 
 const router = express.Router();
+
+authenticator.options = { window: 1 };
 
 // Inscription d'une NOUVELLE société : crée la société + son premier manager
 router.post('/register', async (req, res) => {
@@ -30,13 +33,11 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const year = new Date().getFullYear();
 
-    // Tout ou rien : si une étape échoue, rien n'est créé
     const result = await prisma.$transaction(async (tx) => {
       const company = await tx.company.create({ data: { name: companyName } });
 
       await createDefaultLeaveTypes(tx, company.id);
 
-      // Le rôle est imposé côté serveur : le premier utilisateur est toujours manager
       const user = await tx.user.create({
         data: {
           email, password: hashedPassword, firstName, lastName,
@@ -44,7 +45,6 @@ router.post('/register', async (req, res) => {
         }
       });
 
-      // Soldes initiaux CP et RTT du manager
       const types = await tx.leaveType.findMany({
         where: { companyId: company.id, code: { in: ['CP', 'RTT'] } }
       });
@@ -76,6 +76,109 @@ router.post('/login', async (req, res) => {
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
 
+    if (user.twoFactorEnabled) {
+      // Mot de passe correct, mais il manque le code 2FA : on ne renvoie PAS le vrai
+      // jeton. Ce jeton temporaire n'a pas de companyId, donc toutes les routes
+      // protégées le refusent automatiquement (voir middlewares/auth.js).
+      const pendingToken = jwt.sign(
+        { userId: user.id, pending2FA: true },
+        process.env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+      return res.json({ requiresTwoFactor: true, pendingToken });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, role: user.role, companyId: user.companyId },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    res.json({ token });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+const MAX_2FA_ATTEMPTS = 5;
+const LOCK_MINUTES = 15;
+
+// Deuxième étape de connexion quand le 2FA est actif : code TOTP ou code de récupération.
+// Après 5 codes faux d'affilée, le compte est verrouillé 15 minutes pour cette étape.
+router.post('/login/verify-2fa', async (req, res) => {
+  try {
+    const { pendingToken, code } = req.body;
+    if (!pendingToken || !code) {
+      return res.status(400).json({ error: 'Jeton temporaire et code obligatoires' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(pendingToken, process.env.JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ error: 'Session de connexion expirée, recommencez' });
+    }
+    if (!decoded.pending2FA) {
+      return res.status(401).json({ error: 'Jeton invalide' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    if (!user || !user.twoFactorEnabled) {
+      return res.status(401).json({ error: 'Session de connexion invalide' });
+    }
+
+    // Verrouillage en cours ? On refuse AVANT de tester le moindre code.
+    if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
+      const minutes = Math.ceil((user.twoFactorLockedUntil - new Date()) / 60000);
+      return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${minutes} minute(s).` });
+    }
+
+    const cleanCode = String(code).replace(/\s/g, '');
+    let ok = authenticator.check(cleanCode, user.twoFactorSecret);
+
+    // Si ce n'est pas un code TOTP valide, on tente un code de récupération non utilisé
+    if (!ok) {
+      const normalizedCode = cleanCode.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      const unusedCodes = await prisma.recoveryCode.findMany({
+        where: { userId: user.id, used: false }
+      });
+      for (const rc of unusedCodes) {
+        if (await bcrypt.compare(normalizedCode, rc.codeHash)) {
+          // updateMany avec "used: false" : si deux requêtes arrivent en même temps
+          // avec le même code, une seule peut le consommer (count === 1).
+          const claimed = await prisma.recoveryCode.updateMany({
+            where: { id: rc.id, used: false },
+            data: { used: true, usedAt: new Date() }
+          });
+          if (claimed.count === 1) ok = true;
+          break;
+        }
+      }
+    }
+
+    if (!ok) {
+      const updated = await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorFailedAttempts: { increment: 1 } }
+      });
+      if (updated.twoFactorFailedAttempts >= MAX_2FA_ATTEMPTS) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            twoFactorFailedAttempts: 0,
+            twoFactorLockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
+          }
+        });
+        return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${LOCK_MINUTES} minutes.` });
+      }
+      return res.status(401).json({ error: 'Code invalide' });
+    }
+
+    // Succès : on remet les compteurs à zéro
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorFailedAttempts: 0, twoFactorLockedUntil: null }
+    });
+
     const token = jwt.sign(
       { userId: user.id, role: user.role, companyId: user.companyId },
       process.env.JWT_SECRET,
@@ -93,22 +196,19 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email obligatoire' });
 
-    // Toujours la même réponse, que l'e-mail existe ou non : on ne révèle jamais
-    // si une adresse est enregistrée.
     const genericResponse = { message: 'Si cet e-mail existe, un lien de réinitialisation a été envoyé.' };
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.json(genericResponse);
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
 
     await prisma.user.update({
       where: { id: user.id },
       data: { resetToken: token, resetTokenExpires: expires }
     });
 
-    // Affiché dans la console du serveur, pratique pour les tests sans avoir à ouvrir l'e-mail
     if (process.env.FRONT_URL) {
       console.log(`Lien de réinitialisation pour ${email} : ${process.env.FRONT_URL}?resetToken=${token} (valable 15 min)`);
     } else {
