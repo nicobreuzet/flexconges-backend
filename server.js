@@ -14,8 +14,10 @@ const twoFactorRoutes = require('./routes/twoFactor');
 const cors = require('cors');
 const app = express();
 
-// Derrière le proxy de Render, sans ceci req.ip serait l'adresse du proxy et non celle du visiteur
-app.set('trust proxy', 1);
+// Derrière Render, l'adresse du visiteur est la 3e en partant de l'application :
+// visiteur -> Cloudflare -> relais interne Render -> application.
+// Mesuré en production le 3/10/2026 (si l'IP du journal redevient 10.x ou 172.x, revoir ce nombre).
+app.set('trust proxy', 3);
 const PORT = process.env.PORT || 3000;
 
 app.use(cors()); // autorise toutes les origines (pratique en développement)

@@ -8,15 +8,7 @@ const prisma = require('../config/prisma');
 // récupération, de jeton ni de secret. Uniquement des informations utiles à un humain.
 async function logAudit(req, { companyId, userId = null, action, details = null }) {
   try {
-    // TEMPORAIRE (diagnostic de l'adresse IP) : à retirer ensuite
-    if (action === 'login.success') {
-      console.log('AUDIT-IP', JSON.stringify({
-        reqIp: req.ip,
-        xff: req.headers['x-forwarded-for'],
-        cf: req.headers['cf-connecting-ip'],
-        trueClient: req.headers['true-client-ip']
-      }));
-    }
+
     if (!companyId || !action) return;
     await prisma.auditLog.create({
       data: {
