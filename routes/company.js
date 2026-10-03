@@ -81,6 +81,27 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
       }
     }
 
+    // Obligation du 2FA pour tout le cabinet : un vrai booléen, traité à part
+    // (la boucle ALLOWED_FIELDS transformerait false en null).
+    if (req.body.requireTwoFactor !== undefined) {
+      if (typeof req.body.requireTwoFactor !== 'boolean') {
+        return res.status(400).json({ error: 'requireTwoFactor doit être vrai ou faux' });
+      }
+      if (req.body.requireTwoFactor === true) {
+        // Garde-fou : un manager sans 2FA qui l'impose à tous se bloquerait lui-même
+        const me = await prisma.user.findUnique({
+          where: { id: req.user.userId },
+          select: { twoFactorEnabled: true }
+        });
+        if (!me.twoFactorEnabled) {
+          return res.status(400).json({
+            error: 'Activez d\'abord votre propre 2FA (page « Mon 2FA ») avant de l\'imposer au cabinet.'
+          });
+        }
+      }
+      data.requireTwoFactor = req.body.requireTwoFactor;
+    }
+
     const company = await prisma.company.update({
       where: { id: req.user.companyId },
       data
