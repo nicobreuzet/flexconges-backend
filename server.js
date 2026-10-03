@@ -13,6 +13,9 @@ const teamsRoutes = require('./routes/teams');
 const twoFactorRoutes = require('./routes/twoFactor');
 const cors = require('cors');
 const app = express();
+
+// Derrière le proxy de Render, sans ceci req.ip serait l'adresse du proxy et non celle du visiteur
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 app.use(cors()); // autorise toutes les origines (pratique en développement)

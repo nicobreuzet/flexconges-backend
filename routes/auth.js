@@ -6,7 +6,7 @@ const { authenticator } = require('otplib');
 const prisma = require('../config/prisma');
 const { createDefaultLeaveTypes } = require('../utils/defaultLeaveTypes');
 const { sendMail } = require('../config/mailer');
-
+const { logAudit } = require('../utils/audit');
 const router = express.Router();
 
 authenticator.options = { window: 1 };
@@ -74,8 +74,10 @@ router.post('/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
 
     const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
-
+    if (!isValid) {
+      await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.failed', details: { raison: 'mot de passe incorrect' } });
+      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    }
     if (user.twoFactorEnabled) {
       // Mot de passe correct, mais il manque le code 2FA : on ne renvoie PAS le vrai
       // jeton. Ce jeton temporaire n'a pas de companyId, donc toutes les routes
@@ -93,6 +95,7 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
+    await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.success', details: { deuxFacteurs: false } });
     res.json({ token });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -134,6 +137,7 @@ router.post('/login/verify-2fa', async (req, res) => {
 
     const cleanCode = String(code).replace(/\s/g, '');
     let ok = authenticator.check(cleanCode, user.twoFactorSecret);
+    let methode = ok ? 'application' : null;
 
     // Si ce n'est pas un code TOTP valide, on tente un code de récupération non utilisé
     if (!ok) {
@@ -149,8 +153,7 @@ router.post('/login/verify-2fa', async (req, res) => {
             where: { id: rc.id, used: false },
             data: { used: true, usedAt: new Date() }
           });
-          if (claimed.count === 1) ok = true;
-          break;
+          if (claimed.count === 1) { ok = true; methode = 'code de récupération'; }          break;
         }
       }
     }
@@ -168,11 +171,12 @@ router.post('/login/verify-2fa', async (req, res) => {
             twoFactorLockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
           }
         });
+        await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.locked', details: { minutes: LOCK_MINUTES } });
         return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${LOCK_MINUTES} minutes.` });
       }
+      await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.login_failed', details: { tentative: updated.twoFactorFailedAttempts } });
       return res.status(401).json({ error: 'Code invalide' });
     }
-
     // Succès : on remet les compteurs à zéro
     await prisma.user.update({
       where: { id: user.id },
@@ -184,6 +188,7 @@ router.post('/login/verify-2fa', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
+    await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.success', details: { deuxFacteurs: true, methode } });
     res.json({ token });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -208,6 +213,7 @@ router.post('/forgot-password', async (req, res) => {
       where: { id: user.id },
       data: { resetToken: token, resetTokenExpires: expires }
     });
+    await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'password.reset_requested' });
 
     if (process.env.FRONT_URL) {
       console.log(`Lien de réinitialisation pour ${email} : ${process.env.FRONT_URL}?resetToken=${token} (valable 15 min)`);
@@ -249,7 +255,7 @@ router.post('/reset-password', async (req, res) => {
       where: { id: user.id },
       data: { password: hashedPassword, resetToken: null, resetTokenExpires: null }
     });
-
+    await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'password.reset' });
     res.json({ message: 'Mot de passe mis à jour' });
   } catch (error) {
     res.status(400).json({ error: error.message });

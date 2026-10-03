@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -107,12 +108,68 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
       data
     });
 
+    // Journal d'audit : l'obligation du 2FA est un événement à part, le reste est regroupé
+    if (data.requireTwoFactor !== undefined) {
+      await logAudit(req, {
+        companyId: req.user.companyId,
+        userId: req.user.userId,
+        action: data.requireTwoFactor ? 'company.twofactor_required' : 'company.twofactor_optional'
+      });
+    }
+    const autresChamps = Object.keys(data).filter(k => k !== 'requireTwoFactor');
+    if (autresChamps.length > 0) {
+      await logAudit(req, {
+        companyId: req.user.companyId,
+        userId: req.user.userId,
+        action: 'company.updated',
+        details: { champs: autresChamps }
+      });
+    }
+
     res.json({
       ...company,
       brandingConfig: company.brandingConfig || DEFAULT_BRANDING,
       roleConfig: company.roleConfig || DEFAULT_ROLES,
       rulesConfig: company.rulesConfig || DEFAULT_RULES,
     });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Journal d'audit de la société : réservé au manager, limité à SA société.
+// Pagination par curseur : ?limit=50&before=<id> (les plus récents d'abord).
+// Filtre optionnel : ?action=login  (tout ce qui commence par "login").
+router.get('/audit-logs', authenticate, requireManager, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+
+    const where = { companyId: req.user.companyId };
+    if (req.query.before !== undefined) {
+      const before = Number(req.query.before);
+      if (!Number.isInteger(before) || before < 1) {
+        return res.status(400).json({ error: 'before doit être un identifiant valide' });
+      }
+      where.id = { lt: before };
+    }
+    if (req.query.action) {
+      where.action = { startsWith: String(req.query.action) };
+    }
+
+    // On lit une ligne de plus que demandé pour savoir s'il existe une page suivante
+    const rows = await prisma.auditLog.findMany({
+      where,
+      orderBy: { id: 'desc' },
+      take: limit + 1,
+      select: {
+        id: true, action: true, details: true, ip: true, userAgent: true, createdAt: true,
+        user: { select: { id: true, firstName: true, lastName: true } }
+      }
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    res.json({ items, nextCursor: hasMore ? items[items.length - 1].id : null });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { sendMail } = require('../config/mailer');
 const { authenticate, requireManager } = require('../middlewares/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -106,6 +107,8 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
     }
     await Promise.all(balanceCreates);
 
+    await logAudit(req, { companyId, userId: req.user.userId, action: 'user.created', details: { cibleId: user.id, cible: user.email, role: user.role } });
+
     // Affiché dans la console du serveur, pratique pour les tests sans avoir à ouvrir l'e-mail
     if (process.env.FRONT_URL) {
       console.log(`Invitation pour ${email} : ${process.env.FRONT_URL}?resetToken=${invitationToken} (valable 7 jours)`);
@@ -148,6 +151,21 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
       select: SAFE_USER_FIELDS
     });
 
+    // Journal d'audit : un changement de rôle est enregistré à part, le reste est regroupé
+    if (role !== undefined && role !== existing.role) {
+      await logAudit(req, { companyId, userId: req.user.userId, action: 'user.role_changed', details: { cibleId: existing.id, cible: existing.email, de: existing.role, vers: role } });
+    }
+    const champsModifies = [];
+    for (const f of ['firstName', 'lastName', 'email']) {
+      if (req.body[f] !== undefined && req.body[f] !== existing[f]) champsModifies.push(f);
+    }
+    if ((phone || null) !== existing.phone) champsModifies.push('phone');
+    if ((address || null) !== existing.address) champsModifies.push('address');
+    if (teamId !== undefined && user.teamId !== existing.teamId) champsModifies.push('team');
+    if (champsModifies.length > 0) {
+      await logAudit(req, { companyId, userId: req.user.userId, action: 'user.updated', details: { cibleId: existing.id, cible: existing.email, champs: champsModifies } });
+    }
+
     // Mise à jour (ou création) des soldes CP/RTT de l'année en cours, si fournis
     const year = new Date().getFullYear();
     if (cpAlloc !== undefined || rttAlloc !== undefined) {
@@ -187,6 +205,7 @@ router.patch('/users/:id/deactivate', authenticate, requireManager, async (req, 
       data: { isActive: false },
       select: SAFE_USER_FIELDS
     });
+    await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'user.deactivated', details: { cibleId: existing.id, cible: existing.email } });
     res.json(user);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -204,6 +223,7 @@ router.patch('/users/:id/reactivate', authenticate, requireManager, async (req, 
       data: { isActive: true },
       select: SAFE_USER_FIELDS
     });
+    await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'user.reactivated', details: { cibleId: existing.id, cible: existing.email } });
     res.json(user);
   } catch (error) {
     res.status(400).json({ error: error.message });

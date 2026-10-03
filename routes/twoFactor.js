@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { authenticator } = require('otplib');
 const prisma = require('../config/prisma');
 const { authenticate } = require('../middlewares/auth');
+const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
@@ -25,7 +26,6 @@ function formatRecoveryCode(code) {
   return code.slice(0, 4) + '-' + code.slice(4);
 }
 
-// Démarre (ou redémarre) l'activation du 2FA : génère un secret, PAS ENCORE actif
 // Démarre l'activation du 2FA : génère un secret, PAS ENCORE actif.
 // Refusé si le 2FA est déjà actif : sinon un simple jeton de session volé
 // suffirait à le désactiver sans mot de passe (on doit passer par /2fa/disable).
@@ -78,6 +78,7 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
       })
     ]);
 
+    await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.enabled' });
     res.json({ success: true, recoveryCodes: recoveryCodes.map(formatRecoveryCode) });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -92,7 +93,10 @@ router.post('/2fa/disable', authenticate, async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
     const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) return res.status(401).json({ error: 'Mot de passe incorrect' });
+    if (!isValid) {
+      await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.disable_failed', details: { raison: 'mot de passe incorrect' } });
+      return res.status(401).json({ error: 'Mot de passe incorrect' });
+    }
 
     await prisma.$transaction([
       prisma.user.update({
@@ -102,6 +106,7 @@ router.post('/2fa/disable', authenticate, async (req, res) => {
       prisma.recoveryCode.deleteMany({ where: { userId: user.id } })
     ]);
 
+    await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.disabled' });
     res.json({ success: true });
   } catch (error) {
     res.status(400).json({ error: error.message });

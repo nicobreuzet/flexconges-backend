@@ -29,6 +29,7 @@ model Company {
   leaveRequests LeaveRequest[]
   leaveBalances LeaveBalance[]
   holidays      Holiday[]
+  auditLogs     AuditLog[]  
 }
 
 model Team {
@@ -73,6 +74,7 @@ model User {
   leaveRequests LeaveRequest[]
   leaveBalances LeaveBalance[]
   recoveryCodes RecoveryCode[]
+  auditLogs     AuditLog[]
 
   @@index([companyId])
 }
@@ -158,4 +160,20 @@ model LeaveBalance {
 
   @@unique([userId, leaveTypeId, year])
   @@index([companyId])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String   // ex : 'login.success', 'twofactor.enabled'
+  details   Json?    // infos complémentaires (jamais de mot de passe, de code ou de secret)
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId Int
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    Int?
+
+  @@index([companyId, createdAt])
 }
