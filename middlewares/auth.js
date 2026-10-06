@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
+const { INACTIVITY_HOURS, TOUCH_EVERY_MINUTES } = require('../utils/sessions');
 
 // Routes qu'un utilisateur peut appeler même si son cabinet exige le 2FA
 // et qu'il ne l'a pas encore activé : de quoi finir sa configuration, rien de plus.
@@ -25,6 +26,11 @@ async function authenticate(req, res, next) {
     return res.status(401).json({ error: 'Token invalide ou expiré' });
   }
 
+  // Un jeton sans identifiant de session (émis avant les sessions réelles) est refusé.
+  if (!decoded.sid) {
+    return res.status(401).json({ error: 'Session obsolète, veuillez vous reconnecter' });
+  }
+
   if (!decoded.companyId) {
     return res.status(401).json({ error: 'Session obsolète, veuillez vous reconnecter' });
   }
@@ -43,6 +49,23 @@ async function authenticate(req, res, next) {
 
     if (!user || !user.isActive || user.companyId !== decoded.companyId) {
       return res.status(401).json({ error: 'Compte introuvable ou désactivé' });
+    }
+
+    // Session : la base dit si CE jeton correspond à une session encore valable.
+    const session = await prisma.session.findUnique({
+      where: { id: decoded.sid },
+      select: { userId: true, revokedAt: true, lastSeenAt: true }
+    });
+    if (!session || session.userId !== decoded.userId || session.revokedAt) {
+      return res.status(401).json({ error: 'Session révoquée, veuillez vous reconnecter' });
+    }
+    const idleMs = Date.now() - session.lastSeenAt.getTime();
+    if (idleMs > INACTIVITY_HOURS * 60 * 60 * 1000) {
+      await prisma.session.update({ where: { id: decoded.sid }, data: { revokedAt: new Date() } });
+      return res.status(401).json({ error: `Session expirée après ${INACTIVITY_HOURS} h d'inactivité, veuillez vous reconnecter` });
+    }
+    if (idleMs > TOUCH_EVERY_MINUTES * 60 * 1000) {
+      await prisma.session.update({ where: { id: decoded.sid }, data: { lastSeenAt: new Date() } });
     }
 
     if (user.company.requireTwoFactor && !user.twoFactorEnabled && !isAllowedWithout2FA(req)) {

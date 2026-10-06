@@ -5,6 +5,7 @@ const prisma = require('../config/prisma');
 const { sendMail } = require('../config/mailer');
 const { authenticate, requireManager } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
+const { revokeUserSessions } = require('../utils/sessions');
 
 const router = express.Router();
 
@@ -205,6 +206,7 @@ router.patch('/users/:id/deactivate', authenticate, requireManager, async (req, 
       data: { isActive: false },
       select: SAFE_USER_FIELDS
     });
+    await revokeUserSessions(existing.id);
     await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'user.deactivated', details: { cibleId: existing.id, cible: existing.email } });
     res.json(user);
   } catch (error) {

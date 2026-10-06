@@ -7,6 +7,7 @@ const prisma = require('../config/prisma');
 const { createDefaultLeaveTypes } = require('../utils/defaultLeaveTypes');
 const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
+const { createSession, revokeUserSessions } = require('../utils/sessions');
 const router = express.Router();
 
 authenticator.options = { window: 1 };
@@ -97,7 +98,7 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user.id, role: user.role, companyId: user.companyId },
+      { userId: user.id, role: user.role, companyId: user.companyId, sid: await createSession(req, user) },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -190,7 +191,7 @@ router.post('/login/verify-2fa', async (req, res) => {
     });
 
     const token = jwt.sign(
-      { userId: user.id, role: user.role, companyId: user.companyId },
+      { userId: user.id, role: user.role, companyId: user.companyId, sid: await createSession(req, user) },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -261,6 +262,7 @@ router.post('/reset-password', async (req, res) => {
       where: { id: user.id },
       data: { password: hashedPassword, resetToken: null, resetTokenExpires: null }
     });
+    await revokeUserSessions(user.id);
     await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'password.reset' });
     res.json({ message: 'Mot de passe mis à jour' });
   } catch (error) {
