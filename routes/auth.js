@@ -78,6 +78,12 @@ router.post('/login', async (req, res) => {
       await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.failed', details: { raison: 'mot de passe incorrect' } });
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
+    // Compte désactivé : refusé APRÈS le contrôle du mot de passe (on ne révèle pas
+    // l'état d'un compte à quelqu'un qui n'a pas le bon mot de passe).
+    if (!user.isActive) {
+      await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.failed', details: { raison: 'compte désactivé' } });
+      return res.status(403).json({ error: 'Compte désactivé. Contactez votre administrateur.' });
+    }
     if (user.twoFactorEnabled) {
       // Mot de passe correct, mais il manque le code 2FA : on ne renvoie PAS le vrai
       // jeton. Ce jeton temporaire n'a pas de companyId, donc toutes les routes
@@ -125,7 +131,7 @@ router.post('/login/verify-2fa', async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-    if (!user || !user.twoFactorEnabled) {
+    if (!user || !user.isActive || !user.twoFactorEnabled) {
       return res.status(401).json({ error: 'Session de connexion invalide' });
     }
 

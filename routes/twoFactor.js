@@ -51,6 +51,10 @@ router.post('/2fa/setup', authenticate, async (req, res) => {
 });
 
 // Confirme l'activation avec un premier code, puis active réellement le 2FA
+// Limite d'essais pour confirmer l'activation du 2FA (même règle que la connexion)
+const MAX_SETUP_ATTEMPTS = 5;
+const SETUP_LOCK_MINUTES = 15;
+
 router.post('/2fa/verify-setup', authenticate, async (req, res) => {
   try {
     const { code } = req.body;
@@ -61,8 +65,31 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Aucune activation en cours. Relancez la configuration.' });
     }
 
+    // Verrouillage en cours ? On refuse AVANT de tester le code.
+    if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
+      const minutes = Math.ceil((user.twoFactorLockedUntil - new Date()) / 60000);
+      return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${minutes} minute(s).` });
+    }
+
     const isValid = authenticator.check(code.replace(/\s/g, ''), user.twoFactorSecret);
-    if (!isValid) return res.status(400).json({ error: 'Code incorrect' });
+    if (!isValid) {
+      const updated = await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorFailedAttempts: { increment: 1 } }
+      });
+      if (updated.twoFactorFailedAttempts >= MAX_SETUP_ATTEMPTS) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            twoFactorFailedAttempts: 0,
+            twoFactorLockedUntil: new Date(Date.now() + SETUP_LOCK_MINUTES * 60 * 1000)
+          }
+        });
+        await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.setup_locked', details: { minutes: SETUP_LOCK_MINUTES } });
+        return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${SETUP_LOCK_MINUTES} minutes.` });
+      }
+      return res.status(400).json({ error: 'Code incorrect' });
+    }
 
     const recoveryCodes = generateRecoveryCodes();
     const hashedCodes = await Promise.all(recoveryCodes.map(c => bcrypt.hash(c, 10)));
@@ -70,7 +97,7 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { twoFactorEnabled: true }
+        data: { twoFactorEnabled: true, twoFactorFailedAttempts: 0, twoFactorLockedUntil: null }
       }),
       prisma.recoveryCode.deleteMany({ where: { userId: user.id } }),
       prisma.recoveryCode.createMany({
