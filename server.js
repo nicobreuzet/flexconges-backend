@@ -47,6 +47,8 @@ app.use('/', sessionsRoutes);
 
 if (require.main === module) {
   app.listen(PORT, () => {
+    // Purge du journal d'audit (> 12 mois) : uniquement au vrai demarrage, jamais dans les tests
+    require('./utils/auditPurge').startAuditPurge();
     console.log(`Serveur démarré sur http://localhost:${PORT}`);
   });
 }

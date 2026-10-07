@@ -127,7 +127,7 @@ describe("Journal d'audit", () => {
     for (let i = 0; i < 3; i++) {
       await request(app).post('/login').send({ email: company.email, password: 'faux-mot-de-passe' });
     }
-    // 1 connexion réussie (création de la société) + 3 échecs = 4 lignes
+    // 1 connexion réussie (création de la société) + 3 échecs = 4 lignes de connexion (+ 1 ligne company.registered : 5 au total)
 
     const page1 = (await getLogs(company.token, '?limit=2')).body;
     expect(page1.items).toHaveLength(2);
@@ -136,7 +136,11 @@ describe("Journal d'audit", () => {
     const page2 = (await getLogs(company.token, `?limit=2&before=${page1.nextCursor}`)).body;
     expect(page2.items).toHaveLength(2);
     expect(page2.items.every(i => i.id < page1.nextCursor)).toBe(true);
-    expect(page2.nextCursor).toBeNull();
+    // 5 lignes au total (company.registered + 1 connexion + 3 echecs) : la page 3 n'en contient qu'une
+    expect(typeof page2.nextCursor).toBe('number');
+    const page3 = (await getLogs(company.token, "?limit=2&before=" + page2.nextCursor)).body;
+    expect(page3.items).toHaveLength(1);
+    expect(page3.nextCursor).toBeNull();
 
     const echecs = (await getLogs(company.token, '?action=login.failed')).body.items;
     expect(echecs).toHaveLength(3);

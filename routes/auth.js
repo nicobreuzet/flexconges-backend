@@ -62,6 +62,7 @@ router.post('/register', async (req, res) => {
     });
 
     const { password: _, ...userWithoutPassword } = result.user;
+    await logAudit(req, { companyId: result.company.id, userId: result.user.id, action: 'company.registered', details: { societe: result.company.name } });
     res.status(201).json({ company: result.company, user: userWithoutPassword });
   } catch (error) {
     res.status(400).json({ error: error.message });

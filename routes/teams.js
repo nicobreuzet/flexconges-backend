@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
+const { logAudit } = require('../utils/audit');
 const router = express.Router();
 
 router.get('/teams', authenticate, async (req, res) => {
@@ -18,6 +19,10 @@ router.post('/teams', authenticate, requireManager, async (req, res) => {
 
     const team = await prisma.team.create({
       data: { name: name.trim(), companyId: req.user.companyId }
+    });
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: 'team.created',
+      details: { equipeId: team.id, equipe: team.name }
     });
     res.status(201).json(team);
   } catch (error) {
@@ -41,6 +46,10 @@ router.put('/teams/:id', authenticate, requireManager, async (req, res) => {
       prisma.user.updateMany({ where: { teamId: existing.id }, data: { team: name.trim() } })
     ]);
 
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: 'team.updated',
+      details: { equipeId: team.id, de: existing.name, vers: team.name }
+    });
     res.json(team);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -60,6 +69,10 @@ router.delete('/teams/:id', authenticate, requireManager, async (req, res) => {
       prisma.team.delete({ where: { id: existing.id } })
     ]);
 
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: 'team.deleted',
+      details: { equipeId: existing.id, equipe: existing.name }
+    });
     res.status(204).send();
   } catch (error) {
     res.status(400).json({ error: error.message });

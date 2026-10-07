@@ -3,9 +3,13 @@ const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
 const { countWorkdays, hasOverlappingRequest } = require('../utils/workdays');
 const { sendMail } = require('../config/mailer');
+const { logAudit } = require('../utils/audit');
 const router = express.Router();
 
 const VALID_HALVES = ['morning', 'afternoon'];
+
+// Date au format AAAA-MM-JJ pour le journal d'audit
+const jour = (d) => new Date(d).toISOString().slice(0, 10);
 
 // Valide et calcule le nombre de jours pour une période avec demi-journées.
 // Renvoie soit { ok: true, daysCount, startHalf, endHalf }, soit { ok: false, error }.
@@ -102,6 +106,10 @@ router.post('/leave-requests', authenticate, async (req, res) => {
       })
     ]);
 
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: 'leave.created',
+      details: { demandeId: leaveRequest.id, typeConge: leaveType.label, du: jour(startDate), au: jour(endDate), jours: Number(daysCount) }
+    });
     res.status(201).json(leaveRequest);
 
     // Notification email aux managers de CETTE société uniquement
@@ -180,6 +188,10 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
       prisma.leaveBalance.update({ where: { id: balance.id }, data: balanceUpdate })
     ]);
 
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: decision === 'approved' ? 'leave.approved' : 'leave.rejected',
+      details: { demandeId: existingRequest.id, collaborateur: updatedRequest.user.firstName + ' ' + updatedRequest.user.lastName, typeConge: updatedRequest.leaveType.label, du: jour(existingRequest.startDate), au: jour(existingRequest.endDate), jours: Number(existingRequest.daysCount) }
+    });
     res.json(updatedRequest);
 
     const statusLabel = decision === 'approved' ? 'approuvée ✅' : 'refusée ❌';
@@ -228,6 +240,10 @@ router.patch('/leave-requests/:id/cancel', authenticate, async (req, res) => {
       })
     ]);
 
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: 'leave.cancelled',
+      details: { demandeId: existingRequest.id, typeConge: updated.leaveType.label, du: jour(existingRequest.startDate), au: jour(existingRequest.endDate), jours: Number(existingRequest.daysCount) }
+    });
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -290,6 +306,10 @@ router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
       })
     ]);
 
+    await logAudit(req, {
+      companyId: req.user.companyId, userId: req.user.userId, action: 'leave.submitted',
+      details: { demandeId: existingRequest.id, typeConge: leaveType.label, du: jour(existingRequest.startDate), au: jour(existingRequest.endDate), jours: Number(existingRequest.daysCount) }
+    });
     res.json(updatedRequest);
 
     const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true, companyId } });
