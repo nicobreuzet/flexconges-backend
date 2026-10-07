@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const { authenticate } = require('../middlewares/auth');
-const { INACTIVITY_HOURS, revokeUserSessions } = require('../utils/sessions');
+const { revokeUserSessions } = require('../utils/sessions');
 const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
@@ -9,7 +9,7 @@ const router = express.Router();
 // Mes sessions encore actives (non révoquées et pas inactives depuis plus de 8 h).
 router.get('/sessions', authenticate, async (req, res) => {
   try {
-    const limit = new Date(Date.now() - INACTIVITY_HOURS * 60 * 60 * 1000);
+    const limit = new Date(Date.now() - req.securityConfig.sessionInactivityHours * 60 * 60 * 1000);
     const sessions = await prisma.session.findMany({
       where: { userId: req.user.userId, revokedAt: null, lastSeenAt: { gte: limit } },
       orderBy: { lastSeenAt: 'desc' },

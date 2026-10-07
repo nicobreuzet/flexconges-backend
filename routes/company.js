@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
+const { getSecurityConfig, validateSecurityPatch } = require('../utils/securityConfig');
 
 const router = express.Router();
 
@@ -56,6 +57,7 @@ router.get('/company', authenticate, async (req, res) => {
       brandingConfig: company.brandingConfig || DEFAULT_BRANDING,
       roleConfig: company.roleConfig || DEFAULT_ROLES,
       rulesConfig: company.rulesConfig || DEFAULT_RULES,
+      securityConfig: getSecurityConfig(company.securityConfig),
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -103,6 +105,21 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
       data.requireTwoFactor = req.body.requireTwoFactor;
     }
 
+    // Réglages de sécurité : validés par le serveur (clés et valeurs connues uniquement),
+    // fusionnés avec l'existant pour qu'une modification partielle n'efface rien.
+    let securityChange = null;
+    if (req.body.securityConfig !== undefined) {
+      const check = validateSecurityPatch(req.body.securityConfig);
+      if (check.error) return res.status(400).json({ error: check.error });
+      const current = await prisma.company.findUnique({
+        where: { id: req.user.companyId },
+        select: { securityConfig: true }
+      });
+      const before = getSecurityConfig(current.securityConfig);
+      data.securityConfig = { ...before, ...check.value };
+      securityChange = { de: before, vers: data.securityConfig };
+    }
+
     const company = await prisma.company.update({
       where: { id: req.user.companyId },
       data
@@ -116,7 +133,15 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
         action: data.requireTwoFactor ? 'company.twofactor_required' : 'company.twofactor_optional'
       });
     }
-    const autresChamps = Object.keys(data).filter(k => k !== 'requireTwoFactor');
+    if (securityChange) {
+      await logAudit(req, {
+        companyId: req.user.companyId,
+        userId: req.user.userId,
+        action: 'company.security_updated',
+        details: securityChange
+      });
+    }
+    const autresChamps = Object.keys(data).filter(k => k !== 'requireTwoFactor' && k !== 'securityConfig');
     if (autresChamps.length > 0) {
       await logAudit(req, {
         companyId: req.user.companyId,
@@ -131,6 +156,7 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
       brandingConfig: company.brandingConfig || DEFAULT_BRANDING,
       roleConfig: company.roleConfig || DEFAULT_ROLES,
       rulesConfig: company.rulesConfig || DEFAULT_RULES,
+      securityConfig: getSecurityConfig(company.securityConfig),
     });
   } catch (error) {
     res.status(400).json({ error: error.message });

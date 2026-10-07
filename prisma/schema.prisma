@@ -35,6 +35,7 @@ model Company {
   brandingConfig Json?
   roleConfig     Json?
   rulesConfig    Json?
+  securityConfig Json?
   requireTwoFactor Boolean @default(false)
   createdAt  DateTime @default(now())
 

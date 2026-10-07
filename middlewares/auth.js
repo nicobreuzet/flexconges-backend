@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
-const { INACTIVITY_HOURS, TOUCH_EVERY_MINUTES } = require('../utils/sessions');
+const { TOUCH_EVERY_MINUTES } = require('../utils/sessions');
+const { getSecurityConfig } = require('../utils/securityConfig');
 
 // Routes qu'un utilisateur peut appeler même si son cabinet exige le 2FA
 // et qu'il ne l'a pas encore activé : de quoi finir sa configuration, rien de plus.
@@ -43,7 +44,7 @@ async function authenticate(req, res, next) {
         isActive: true,
         twoFactorEnabled: true,
         companyId: true,
-        company: { select: { requireTwoFactor: true } }
+        company: { select: { requireTwoFactor: true, securityConfig: true } }
       }
     });
 
@@ -59,10 +60,11 @@ async function authenticate(req, res, next) {
     if (!session || session.userId !== decoded.userId || session.revokedAt) {
       return res.status(401).json({ error: 'Session révoquée, veuillez vous reconnecter' });
     }
+    const security = getSecurityConfig(user.company.securityConfig);
     const idleMs = Date.now() - session.lastSeenAt.getTime();
-    if (idleMs > INACTIVITY_HOURS * 60 * 60 * 1000) {
+    if (idleMs > security.sessionInactivityHours * 60 * 60 * 1000) {
       await prisma.session.update({ where: { id: decoded.sid }, data: { revokedAt: new Date() } });
-      return res.status(401).json({ error: `Session expirée après ${INACTIVITY_HOURS} h d'inactivité, veuillez vous reconnecter` });
+      return res.status(401).json({ error: `Session expirée après ${security.sessionInactivityHours} h d'inactivité, veuillez vous reconnecter` });
     }
     if (idleMs > TOUCH_EVERY_MINUTES * 60 * 1000) {
       await prisma.session.update({ where: { id: decoded.sid }, data: { lastSeenAt: new Date() } });
@@ -76,6 +78,7 @@ async function authenticate(req, res, next) {
     }
 
     req.user = decoded;
+    req.securityConfig = security;
     next();
   } catch (error) {
     return res.status(500).json({ error: 'Erreur serveur' });

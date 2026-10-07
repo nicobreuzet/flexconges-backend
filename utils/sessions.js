@@ -1,8 +1,5 @@
 const prisma = require('../config/prisma');
 
-// Durée d'inactivité au-delà de laquelle une session est refusée.
-// (B5 la rendra configurable par cabinet ; ici, valeur par défaut.)
-const INACTIVITY_HOURS = 8;
 // On ne met "lastSeenAt" à jour qu'au plus toutes les 5 minutes (évite une écriture par requête).
 const TOUCH_EVERY_MINUTES = 5;
 
@@ -28,4 +25,4 @@ async function revokeUserSessions(userId, exceptSessionId = null) {
   return result.count;
 }
 
-module.exports = { INACTIVITY_HOURS, TOUCH_EVERY_MINUTES, createSession, revokeUserSessions };
+module.exports = { TOUCH_EVERY_MINUTES, createSession, revokeUserSessions };
