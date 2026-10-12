@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 router.get('/teams', authenticate, async (req, res) => {
@@ -52,7 +53,7 @@ router.put('/teams/:id', authenticate, requireManager, async (req, res) => {
     });
     res.json(team);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -75,7 +76,7 @@ router.delete('/teams/:id', authenticate, requireManager, async (req, res) => {
     });
     res.status(204).send();
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

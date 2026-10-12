@@ -6,6 +6,7 @@ const { logAudit } = require('../utils/audit');
 // Plafond annuel en nombre simple (ou null) pour le journal d'audit
 const plafond = (v) => (v == null ? null : Number(v));
 
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 router.get('/leave-types', authenticate, async (req, res) => {
@@ -60,7 +61,7 @@ router.put('/leave-types/:id', authenticate, requireManager, async (req, res) =>
     });
     res.json(type);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

@@ -8,9 +8,14 @@ const { createDefaultLeaveTypes } = require('../utils/defaultLeaveTypes');
 const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
 const { createSession, revokeUserSessions } = require('../utils/sessions');
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 authenticator.options = { window: 1 };
+
+// Faux hash (meme cout que les vrais : 10 tours) : sert a faire le meme travail pour un e-mail
+// inconnu, afin qu'on ne puisse pas deviner quels comptes existent en mesurant le temps de reponse.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mot-de-passe-factice-pour-egaliser-le-temps', 10);
 
 // Inscription d'une NOUVELLE société : crée la société + son premier manager
 router.post('/register', async (req, res) => {
@@ -65,15 +70,22 @@ router.post('/register', async (req, res) => {
     await logAudit(req, { companyId: result.company.id, userId: result.user.id, action: 'company.registered', details: { societe: result.company.name } });
     res.status(201).json({ company: result.company, user: userWithoutPassword });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+      return res.status(400).json({ error: 'E-mail et mot de passe obligatoires' });
+    }
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    if (!user) {
+      // Meme travail qu'avec un vrai compte : sinon un e-mail inconnu repond beaucoup plus vite
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    }
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
@@ -106,7 +118,7 @@ router.post('/login', async (req, res) => {
     await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.success', details: { deuxFacteurs: false } });
     res.json({ token });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -199,7 +211,7 @@ router.post('/login/verify-2fa', async (req, res) => {
     await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'login.success', details: { deuxFacteurs: true, methode } });
     res.json({ token });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -237,7 +249,7 @@ router.post('/forgot-password', async (req, res) => {
 
     res.json(genericResponse);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -267,7 +279,7 @@ router.post('/reset-password', async (req, res) => {
     await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'password.reset' });
     res.json({ message: 'Mot de passe mis à jour' });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

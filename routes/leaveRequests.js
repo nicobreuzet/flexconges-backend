@@ -4,6 +4,7 @@ const { authenticate, requireManager } = require('../middlewares/auth');
 const { countWorkdays, hasOverlappingRequest } = require('../utils/workdays');
 const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 const VALID_HALVES = ['morning', 'afternoon'];
@@ -126,7 +127,7 @@ router.post('/leave-requests', authenticate, async (req, res) => {
       ).catch(err => console.error('Erreur envoi email:', err));
     }
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -201,7 +202,7 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
       `Votre demande du ${existingRequest.startDate.toLocaleDateString()} au ${existingRequest.endDate.toLocaleDateString()} a été ${statusLabel}.\n\nCommentaire du manager : ${managerComment || 'Aucun'}`
     ).catch(err => console.error('Erreur envoi email:', err));
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -246,7 +247,7 @@ router.patch('/leave-requests/:id/cancel', authenticate, async (req, res) => {
     });
     res.json(updated);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -322,7 +323,7 @@ router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
       ).catch(err => console.error('Erreur envoi email:', err));
     }
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -369,7 +370,7 @@ router.put('/leave-requests/:id', authenticate, async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -391,7 +392,7 @@ router.delete('/leave-requests/:id', authenticate, async (req, res) => {
     await prisma.leaveRequest.delete({ where: { id: existingRequest.id } });
     res.status(204).end();
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

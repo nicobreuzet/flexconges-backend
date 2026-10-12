@@ -6,6 +6,7 @@ const { logAudit } = require('../utils/audit');
 // Date au format AAAA-MM-JJ pour le journal d'audit
 const jour = (d) => new Date(d).toISOString().slice(0, 10);
 
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 router.get('/holidays', authenticate, async (req, res) => {
@@ -29,7 +30,7 @@ router.post('/holidays', authenticate, requireManager, async (req, res) => {
     });
     res.status(201).json(holiday);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -53,7 +54,7 @@ router.put('/holidays/:id', authenticate, requireManager, async (req, res) => {
     });
     res.json(holiday);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -71,7 +72,7 @@ router.delete('/holidays/:id', authenticate, requireManager, async (req, res) =>
     });
     res.status(204).send();
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

@@ -13,6 +13,7 @@ const teamsRoutes = require('./routes/teams');
 const twoFactorRoutes = require('./routes/twoFactor');
 const sessionsRoutes = require('./routes/sessions');
 const cors = require('cors');
+const helmet = require('helmet');
 const app = express();
 
 // Derrière Render, l'adresse du visiteur est la 3e en partant de l'application :
@@ -21,6 +22,7 @@ const app = express();
 app.set('trust proxy', 3);
 const PORT = process.env.PORT || 3000;
 
+app.use(helmet()); // en-tetes de securite (nosniff, anti-clickjacking, HSTS...), retire X-Powered-By
 app.use(cors()); // autorise toutes les origines (pratique en développement)
 app.use(express.json());
 
@@ -44,6 +46,11 @@ app.use('/', companyRoutes);
 app.use('/', teamsRoutes);
 app.use('/', twoFactorRoutes);
 app.use('/', sessionsRoutes);
+
+// Filet de securite : toute erreur non geree (JSON mal forme, route sans try/catch...)
+// renvoie du JSON generique, jamais de trace ni de message technique.
+const { sendError } = require('./utils/httpErrors');
+app.use((err, req, res, next) => sendError(req, res, err));
 
 if (require.main === module) {
   app.listen(PORT, () => {

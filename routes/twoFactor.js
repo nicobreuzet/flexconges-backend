@@ -6,6 +6,7 @@ const prisma = require('../config/prisma');
 const { authenticate } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
 
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 authenticator.options = { window: 1 }; // tolère 30s d'avance/retard d'horloge
@@ -46,7 +47,7 @@ router.post('/2fa/setup', authenticate, async (req, res) => {
     const formatted = secret.match(/.{1,4}/g).join(' ');
     res.json({ secret: formatted });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -108,7 +109,7 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
     await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.enabled' });
     res.json({ success: true, recoveryCodes: recoveryCodes.map(formatRecoveryCode) });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -136,7 +137,7 @@ router.post('/2fa/disable', authenticate, async (req, res) => {
     await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.disabled' });
     res.json({ success: true });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

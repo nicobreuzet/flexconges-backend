@@ -7,6 +7,7 @@ const { authenticate, requireManager } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
 const { revokeUserSessions } = require('../utils/sessions');
 
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 const SAFE_USER_FIELDS = {
@@ -125,7 +126,8 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 
     res.status(201).json({ ...user, invitationSent: true });
   } catch (error) {
-    res.status(error.status || 400).json({ error: error.message });
+    if (error.status) return res.status(error.status).json({ error: error.message }); // erreur voulue par le code (ex : equipe invalide)
+    sendError(req, res, error);
   }
 });
 
@@ -191,7 +193,8 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    res.status(error.status || 400).json({ error: error.message });
+    if (error.status) return res.status(error.status).json({ error: error.message }); // erreur voulue par le code (ex : equipe invalide)
+    sendError(req, res, error);
   }
 });
 
@@ -210,7 +213,7 @@ router.patch('/users/:id/deactivate', authenticate, requireManager, async (req, 
     await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'user.deactivated', details: { cibleId: existing.id, cible: existing.email } });
     res.json(user);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -228,7 +231,7 @@ router.patch('/users/:id/reactivate', authenticate, requireManager, async (req, 
     await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'user.reactivated', details: { cibleId: existing.id, cible: existing.email } });
     res.json(user);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

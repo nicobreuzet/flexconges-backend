@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const { purgeOldSessions, SESSION_RETENTION_DAYS } = require('./sessionPurge');
 
 // Duree de conservation du journal d audit
 const RETENTION_MONTHS = 12;
@@ -28,6 +29,13 @@ async function runPurgeSafely() {
   } catch (error) {
     console.error('Erreur de la purge du journal d audit :', error.message);
   }
+  // Sessions de plus de 30 jours : meme tache, mais echec independant de la purge du journal
+  try {
+    const s = await purgeOldSessions();
+    if (s > 0) console.log('Purge des sessions : ' + s + ' session(s) de plus de ' + SESSION_RETENTION_DAYS + ' jours supprimee(s)');
+  } catch (error) {
+    console.error('Erreur de la purge des sessions :', error.message);
+  }
 }
 
 // Premiere passe peu apres le demarrage, puis toutes les 24 h.
@@ -36,7 +44,7 @@ async function runPurgeSafely() {
 function startAuditPurge() {
   const first = setTimeout(runPurgeSafely, FIRST_RUN_DELAY_SECONDS * 1000);
   const every = setInterval(runPurgeSafely, PURGE_EVERY_HOURS * 3600 * 1000);
-  console.log('Purge du journal d audit planifiee : lignes de plus de ' + RETENTION_MONTHS + ' mois, 1re passe dans ' + FIRST_RUN_DELAY_SECONDS + ' s puis toutes les ' + PURGE_EVERY_HOURS + ' h');
+  console.log('Purge du journal d audit planifiee : lignes de plus de ' + RETENTION_MONTHS + ' mois, 1re passe dans ' + FIRST_RUN_DELAY_SECONDS + ' s puis toutes les ' + PURGE_EVERY_HOURS + ' h (sessions : plus de ' + SESSION_RETENTION_DAYS + ' jours)');
   first.unref();
   every.unref();
   return () => { clearTimeout(first); clearInterval(every); };

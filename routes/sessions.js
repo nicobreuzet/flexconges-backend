@@ -4,6 +4,7 @@ const { authenticate } = require('../middlewares/auth');
 const { revokeUserSessions } = require('../utils/sessions');
 const { logAudit } = require('../utils/audit');
 
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 // Mes sessions encore actives (non révoquées et pas inactives depuis plus de 8 h).
@@ -17,7 +18,7 @@ router.get('/sessions', authenticate, async (req, res) => {
     });
     res.json(sessions.map(s => ({ ...s, current: s.id === req.user.sid })));
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -33,7 +34,7 @@ router.delete('/sessions/:id', authenticate, async (req, res) => {
     await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'session.revoked', details: { actuelle: session.id === req.user.sid } });
     res.json({ success: true });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -44,7 +45,7 @@ router.post('/sessions/revoke-others', authenticate, async (req, res) => {
     await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'session.revoked_others', details: { nombre: count } });
     res.json({ success: true, revoked: count });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -58,7 +59,7 @@ router.post('/logout', authenticate, async (req, res) => {
     await logAudit(req, { companyId: req.user.companyId, userId: req.user.userId, action: 'logout' });
     res.json({ success: true });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 

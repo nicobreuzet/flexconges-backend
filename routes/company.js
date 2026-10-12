@@ -4,6 +4,7 @@ const { authenticate, requireManager } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
 const { getSecurityConfig, validateSecurityPatch } = require('../utils/securityConfig');
 
+const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 const ALLOWED_FIELDS = ['sector', 'siret', 'barreau', 'convention', 'taille', 'pays', 'adresse'];
@@ -60,7 +61,7 @@ router.get('/company', authenticate, async (req, res) => {
       securityConfig: getSecurityConfig(company.securityConfig),
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -159,7 +160,7 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
       securityConfig: getSecurityConfig(company.securityConfig),
     });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
@@ -197,7 +198,7 @@ router.get('/audit-logs', authenticate, requireManager, async (req, res) => {
     const items = hasMore ? rows.slice(0, limit) : rows;
     res.json({ items, nextCursor: hasMore ? items[items.length - 1].id : null });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    sendError(req, res, error);
   }
 });
 
