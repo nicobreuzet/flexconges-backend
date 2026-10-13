@@ -3,42 +3,15 @@ const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
 const { getSecurityConfig, validateSecurityPatch } = require('../utils/securityConfig');
-
+const { getBrandingConfig, getRoleConfig, getRulesConfig, validateBrandingPatch, validateRolePatch, validateRulesPatch, mergeRoleConfig } = require('../utils/companyConfig');
 const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
 
 const ALLOWED_FIELDS = ['sector', 'siret', 'barreau', 'convention', 'taille', 'pays', 'adresse'];
 
-// Valeurs par défaut si une société n'a jamais touché à ces réglages
-// (colonnes encore à null en base)
-const DEFAULT_BRANDING = {
-  name: 'FlexCongés Démo',
-  sidebarSubtitle: 'Gestion des Absences',
-  welcomeMsg: 'Bienvenue sur FlexCongés',
-  teamLabel: 'Équipe',
-  primaryColor: '#0d1b2a',
-  accentColor: '#c9a84c',
-};
-
-const DEFAULT_ROLES = {
-  manager: {
-    singular: 'Manager', plural: 'Managers', feminine: 'Manager',
-    icon: '👔', color: '#dc2626',
-    permissions: { canApprove: true, canManageUsers: true, canSeeReports: true, canAdmin: true, canManageBilling: true },
-  },
-  employee: {
-    singular: 'Employé', plural: 'Employés', feminine: 'Employée',
-    icon: '👤', color: '#2d7a4f',
-    permissions: { canApprove: false, canManageUsers: false, canSeeReports: false, canAdmin: false, canManageBilling: false },
-  },
-};
-
-const DEFAULT_RULES = {
-  noticeDays: 14,
-  maxSimultaneousAbsences: 2,
-  carryOverDate: '31 mai N+1',
-  workflowLevels: 1, // 1 = manager seul, 2 = manager + validation RH
-};
+// Réglages d'un cabinet : valeurs par défaut, validation et fusion sont dans
+// utils/companyConfig.js (le serveur est la seule autorité ; le front affiche et envoie).
+const CONFIG_BLOCKS = ['brandingConfig', 'roleConfig', 'rulesConfig'];
 
 // Lecture des infos de la société de l'utilisateur connecté.
 // Accessible à tout le monde (employé ou manager) : tout le monde a besoin
@@ -55,9 +28,9 @@ router.get('/company', authenticate, async (req, res) => {
 
     res.json({
       ...company,
-      brandingConfig: company.brandingConfig || DEFAULT_BRANDING,
-      roleConfig: company.roleConfig || DEFAULT_ROLES,
-      rulesConfig: company.rulesConfig || DEFAULT_RULES,
+      brandingConfig: getBrandingConfig(company.brandingConfig),
+      roleConfig: getRoleConfig(company.roleConfig),
+      rulesConfig: getRulesConfig(company.rulesConfig),
       securityConfig: getSecurityConfig(company.securityConfig),
     });
   } catch (error) {
@@ -75,13 +48,38 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
       if (req.body[field] !== undefined) data[field] = req.body[field] || null;
     }
 
-    // Les 3 blocs de réglages : on attend un objet (ou rien du tout)
-    for (const field of ['brandingConfig', 'roleConfig', 'rulesConfig']) {
-      if (req.body[field] !== undefined) {
-        if (typeof req.body[field] !== 'object' || req.body[field] === null || Array.isArray(req.body[field])) {
-          return res.status(400).json({ error: `${field} doit être un objet` });
-        }
-        data[field] = req.body[field];
+    // Les 3 blocs de réglages (identité, rôles, règles) : validés par le serveur
+    // (clés et valeurs connues uniquement), puis fusionnés avec l'existant pour
+    // qu'une modification partielle n'efface rien. Voir utils/companyConfig.js.
+    const configChanges = [];
+    if (CONFIG_BLOCKS.some((bloc) => req.body[bloc] !== undefined)) {
+      const current = await prisma.company.findUnique({
+        where: { id: req.user.companyId },
+        select: { brandingConfig: true, roleConfig: true, rulesConfig: true }
+      });
+
+      if (req.body.brandingConfig !== undefined) {
+        const check = validateBrandingPatch(req.body.brandingConfig);
+        if (check.error) return res.status(400).json({ error: check.error });
+        const before = getBrandingConfig(current?.brandingConfig);
+        data.brandingConfig = { ...before, ...check.value };
+        configChanges.push({ action: 'company.branding_updated', details: { de: before, vers: data.brandingConfig } });
+      }
+
+      if (req.body.roleConfig !== undefined) {
+        const check = validateRolePatch(req.body.roleConfig);
+        if (check.error) return res.status(400).json({ error: check.error });
+        const before = mergeRoleConfig(current?.roleConfig, {});
+        data.roleConfig = mergeRoleConfig(current?.roleConfig, check.value);
+        configChanges.push({ action: 'company.roles_updated', details: { de: before, vers: data.roleConfig } });
+      }
+
+      if (req.body.rulesConfig !== undefined) {
+        const check = validateRulesPatch(req.body.rulesConfig);
+        if (check.error) return res.status(400).json({ error: check.error });
+        const before = getRulesConfig(current?.rulesConfig);
+        data.rulesConfig = { ...before, ...check.value };
+        configChanges.push({ action: 'company.rules_updated', details: { de: before, vers: data.rulesConfig } });
       }
     }
 
@@ -142,7 +140,17 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
         details: securityChange
       });
     }
-    const autresChamps = Object.keys(data).filter(k => k !== 'requireTwoFactor' && k !== 'securityConfig');
+    for (const change of configChanges) {
+      await logAudit(req, {
+        companyId: req.user.companyId,
+        userId: req.user.userId,
+        action: change.action,
+        details: change.details
+      });
+    }
+    const autresChamps = Object.keys(data).filter(
+      k => k !== 'requireTwoFactor' && k !== 'securityConfig' && !CONFIG_BLOCKS.includes(k)
+    );
     if (autresChamps.length > 0) {
       await logAudit(req, {
         companyId: req.user.companyId,
@@ -154,9 +162,9 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
 
     res.json({
       ...company,
-      brandingConfig: company.brandingConfig || DEFAULT_BRANDING,
-      roleConfig: company.roleConfig || DEFAULT_ROLES,
-      rulesConfig: company.rulesConfig || DEFAULT_RULES,
+      brandingConfig: getBrandingConfig(company.brandingConfig),
+      roleConfig: getRoleConfig(company.roleConfig),
+      rulesConfig: getRulesConfig(company.rulesConfig),
       securityConfig: getSecurityConfig(company.securityConfig),
     });
   } catch (error) {
