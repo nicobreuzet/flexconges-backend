@@ -5,6 +5,7 @@ const { countWorkdays, hasOverlappingRequest } = require('../utils/workdays');
 const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
 const { sendError } = require('../utils/httpErrors');
+const { checkLeaveRules } = require('../utils/leaveRules');
 const router = express.Router();
 
 const VALID_HALVES = ['morning', 'afternoon'];
@@ -68,6 +69,12 @@ router.post('/leave-requests', authenticate, async (req, res) => {
     const overlap = await hasOverlappingRequest(req.user.userId, startDate, endDate, companyId);
     if (overlap) {
       return res.status(400).json({ error: 'Vous avez déjà une demande sur cette période' });
+    }
+
+    // Règles du cabinet (préavis, absences simultanées) : décidées par le serveur.
+    const rules = await checkLeaveRules({ userId: req.user.userId, companyId, leaveType, startDate, endDate });
+    if (!rules.ok) {
+      return res.status(400).json({ error: rules.error });
     }
 
     const year = new Date(startDate).getFullYear();
@@ -273,6 +280,15 @@ router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
     );
     if (overlap) {
       return res.status(400).json({ error: 'Vous avez déjà une demande sur cette période' });
+    }
+
+    // Règles du cabinet (préavis, absences simultanées) : décidées par le serveur.
+    const rules = await checkLeaveRules({
+      userId: req.user.userId, companyId, leaveType,
+      startDate: existingRequest.startDate, endDate: existingRequest.endDate
+    });
+    if (!rules.ok) {
+      return res.status(400).json({ error: rules.error });
     }
 
     const year = existingRequest.startDate.getFullYear();
