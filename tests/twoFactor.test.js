@@ -3,11 +3,16 @@ const { authenticator } = require('otplib');
 const app = require('../server');
 const prisma = require('../config/prisma');
 const { createCompanyWithManager } = require('./helpers');
+const { codeAtStep } = require('./totpHelper');
 
 // Les tests de verrouillage font plusieurs comparaisons bcrypt : on laisse de la marge
 jest.setTimeout(30000);
 
 authenticator.options = { window: 1 };
+
+// Anti-rejeu : l'activation du 2FA consomme le code du créneau COURANT (créneau de 30 s).
+// Les connexions qui suivent utilisent donc codeAtStep(secret, 1), le créneau suivant,
+// que le serveur accepte (tolérance de ±1 créneau).
 
 // Active le 2FA pour un manager, comme le ferait le front, et renvoie secret + codes de récupération
 async function enable2FA(company) {
@@ -91,7 +96,7 @@ describe('Authentification à deux facteurs (2FA)', () => {
     expect(bad.status).toBe(401);
     expect(bad.body.error).toMatch(/Code invalide/);
 
-    const good = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: authenticator.generate(secret) });
+    const good = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: codeAtStep(secret, 1) });
     expect(good.status).toBe(200);
     expect(typeof good.body.token).toBe('string');
 
@@ -140,7 +145,7 @@ describe('Authentification à deux facteurs (2FA)', () => {
     expect(fifth.status).toBe(429);
 
     // Verrouillé : même le bon code est refusé
-    const locked = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: authenticator.generate(secret) });
+    const locked = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: codeAtStep(secret, 1) });
     expect(locked.status).toBe(429);
 
     // On simule la fin des 15 minutes : le bon code passe de nouveau
@@ -148,7 +153,7 @@ describe('Authentification à deux facteurs (2FA)', () => {
       where: { email: company.email },
       data: { twoFactorLockedUntil: new Date(Date.now() - 1000) }
     });
-    const unlocked = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: authenticator.generate(secret) });
+    const unlocked = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: codeAtStep(secret, 1) });
     expect(unlocked.status).toBe(200);
   });
 
@@ -162,7 +167,7 @@ describe('Authentification à deux facteurs (2FA)', () => {
     let user = await prisma.user.findUnique({ where: { email: company.email } });
     expect(user.twoFactorFailedAttempts).toBe(2);
 
-    const ok = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: authenticator.generate(secret) });
+    const ok = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: codeAtStep(secret, 1) });
     expect(ok.status).toBe(200);
     user = await prisma.user.findUnique({ where: { email: company.email } });
     expect(user.twoFactorFailedAttempts).toBe(0);

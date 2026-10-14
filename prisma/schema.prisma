@@ -82,6 +82,7 @@ model User {
   twoFactorEnabled   Boolean   @default(false)
   twoFactorFailedAttempts Int       @default(0)
   twoFactorLockedUntil    DateTime?
+  twoFactorLastStep       Int?
 
   company     Company   @relation(fields: [companyId], references: [id])
   companyId   Int

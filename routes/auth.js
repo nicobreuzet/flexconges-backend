@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { authenticator } = require('otplib');
+const { verifyTotp } = require('../utils/totp');
 const prisma = require('../config/prisma');
 const { createDefaultLeaveTypes } = require('../utils/defaultLeaveTypes');
 const { sendMail } = require('../config/mailer');
@@ -10,8 +10,6 @@ const { logAudit } = require('../utils/audit');
 const { createSession, revokeUserSessions } = require('../utils/sessions');
 const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
-
-authenticator.options = { window: 1 };
 
 // Faux hash (meme cout que les vrais : 10 tours) : sert a faire le meme travail pour un e-mail
 // inconnu, afin qu'on ne puisse pas deviner quels comptes existent en mesurant le temps de reponse.
@@ -156,7 +154,7 @@ router.post('/login/verify-2fa', async (req, res) => {
     }
 
     const cleanCode = String(code).replace(/\s/g, '');
-    let ok = authenticator.check(cleanCode, user.twoFactorSecret);
+    let ok = await verifyTotp(user, cleanCode); 
     let methode = ok ? 'application' : null;
 
     // Si ce n'est pas un code TOTP valide, on tente un code de récupération non utilisé

@@ -5,6 +5,7 @@ const { authenticator } = require('otplib');
 const prisma = require('../config/prisma');
 const { authenticate } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
+const { verifyTotp } = require('../utils/totp');
 
 const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
@@ -72,7 +73,7 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
       return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${minutes} minute(s).` });
     }
 
-    const isValid = authenticator.check(code.replace(/\s/g, ''), user.twoFactorSecret);
+    const isValid = await verifyTotp(user, code);
     if (!isValid) {
       const updated = await prisma.user.update({
         where: { id: user.id },
