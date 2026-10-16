@@ -6,6 +6,7 @@ const prisma = require('../config/prisma');
 const { authenticate } = require('../middlewares/auth');
 const { logAudit } = require('../utils/audit');
 const { verifyTotp } = require('../utils/totp');
+const { encryptSecret } = require('../utils/twoFactorCrypto');
 
 const { sendError } = require('../utils/httpErrors');
 const router = express.Router();
@@ -43,7 +44,7 @@ router.post('/2fa/setup', authenticate, async (req, res) => {
     const secret = authenticator.generateSecret();
     await prisma.user.update({
       where: { id: req.user.userId },
-      data: { twoFactorSecret: secret, twoFactorEnabled: false }
+      data: { twoFactorSecret: encryptSecret(secret), twoFactorEnabled: false }
     });
     const formatted = secret.match(/.{1,4}/g).join(' ');
     res.json({ secret: formatted });

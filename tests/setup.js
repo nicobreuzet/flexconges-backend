@@ -13,3 +13,6 @@ if (dbUrl.hostname !== 'localhost' || !dbName.endsWith('_test')) {
 afterAll(async () => {
   await prisma.$disconnect();
 });
+
+// Clé de chiffrement 2FA réservée aux tests (jamais celle de la production)
+process.env.TWO_FACTOR_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');

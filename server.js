@@ -53,6 +53,15 @@ const { sendError } = require('./utils/httpErrors');
 app.use((err, req, res, next) => sendError(req, res, err));
 
 if (require.main === module) {
+  // Démarrage refusé sans clé de chiffrement 2FA valide : mieux vaut un déploiement qui
+  // échoue tout de suite (Render garde alors l'ancienne version en ligne) qu'un serveur
+  // qui découvre le problème à la première connexion 2FA.
+  try {
+    require('./utils/twoFactorCrypto').assertKeyConfigured();
+  } catch (error) {
+    console.error(`Démarrage refusé : ${error.message}`);
+    process.exit(1);
+  }
   app.listen(PORT, () => {
     // Purge du journal d'audit (> 12 mois) : uniquement au vrai demarrage, jamais dans les tests
     require('./utils/auditPurge').startAuditPurge();
