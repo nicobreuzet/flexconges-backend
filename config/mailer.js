@@ -36,10 +36,29 @@ async function deliver(apiKey, to, subject, text) {
   }
 }
 
+// Liste blanche optionnelle : MAIL_ALLOWED_RECIPIENTS="adresse@x.fr,@domaine.fr"
+// Si la variable est absente ou vide, tout le monde peut recevoir des mails.
+function isAllowedRecipient(to) {
+  const raw = process.env.MAIL_ALLOWED_RECIPIENTS;
+  if (!raw || !raw.trim()) return true;
+  const addr = String(to || '').trim().toLowerCase();
+  return raw
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+    .some(rule => (rule.startsWith('@') ? addr.endsWith(rule) : addr === rule));
+}
+
 async function sendMail(to, subject, text) {
   if (process.env.NODE_ENV === 'test') {
     return; // on n'envoie rien pendant les tests automatisés
   }
+
+  if (!isAllowedRecipient(to)) {
+    console.warn('E-mail non envoyé : destinataire hors de la liste MAIL_ALLOWED_RECIPIENTS');
+    return;
+  }
+
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
     if (process.env.NODE_ENV === 'production') {
@@ -51,4 +70,4 @@ async function sendMail(to, subject, text) {
   await deliver(apiKey, to, subject, text);
 }
 
-module.exports = { sendMail, deliver, parseFrom };
+module.exports = { sendMail, deliver, parseFrom, isAllowedRecipient };

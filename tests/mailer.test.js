@@ -1,4 +1,4 @@
-const { sendMail, deliver, parseFrom } = require('../config/mailer');
+const { sendMail, deliver, parseFrom, isAllowedRecipient } = require('../config/mailer');
 
 describe('mailer (Brevo)', () => {
   const realFetch = global.fetch;
@@ -52,5 +52,26 @@ describe('mailer (Brevo)', () => {
     global.fetch = jest.fn();
     await sendMail('a@b.fr', 'S', 'C');
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('liste blanche des destinataires', () => {
+  afterEach(() => { delete process.env.MAIL_ALLOWED_RECIPIENTS; });
+
+  test('sans variable : tout le monde est autorisé', () => {
+    expect(isAllowedRecipient('n.importe@qui.com')).toBe(true);
+  });
+
+  test('avec une liste : adresse exacte et domaine entier, sans tenir compte des majuscules', () => {
+    process.env.MAIL_ALLOWED_RECIPIENTS = 'moi@gmail.com, @flexiabilite.fr';
+    expect(isAllowedRecipient('Moi@Gmail.com')).toBe(true);
+    expect(isAllowedRecipient('paul@flexiabilite.fr')).toBe(true);
+    expect(isAllowedRecipient('nic.olas@bbr.com')).toBe(false);
+    expect(isAllowedRecipient('moi@gmail.com.evil.fr')).toBe(false);
+  });
+
+  test('une variable vide ou avec seulement des virgules autorise tout (pas de blocage involontaire)', () => {
+    process.env.MAIL_ALLOWED_RECIPIENTS = '  ';
+    expect(isAllowedRecipient('a@b.fr')).toBe(true);
   });
 });
