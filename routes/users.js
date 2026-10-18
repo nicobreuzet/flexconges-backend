@@ -111,11 +111,9 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 
     await logAudit(req, { companyId, userId: req.user.userId, action: 'user.created', details: { cibleId: user.id, cible: user.email, role: user.role } });
 
-    // Affiché dans la console du serveur, pratique pour les tests sans avoir à ouvrir l'e-mail
-    if (process.env.FRONT_URL) {
-      console.log(`Invitation pour ${email} : ${process.env.FRONT_URL}?resetToken=${invitationToken} (valable 7 jours)`);
-    } else {
-      console.log(`Jeton d'invitation pour ${email} : ${invitationToken} (valable 7 jours, FRONT_URL non défini)`);
+    // Le jeton ne s'affiche dans la console qu'en développement local (jamais en production).
+    if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+      console.log(`[dev] Invitation pour ${email} : ${process.env.FRONT_URL || '(FRONT_URL non défini)'}?resetToken=${invitationToken}`);
     }
 
     sendMail(

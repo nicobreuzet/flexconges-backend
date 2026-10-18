@@ -233,10 +233,10 @@ router.post('/forgot-password', async (req, res) => {
     });
     await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'password.reset_requested' });
 
-    if (process.env.FRONT_URL) {
-      console.log(`Lien de réinitialisation pour ${email} : ${process.env.FRONT_URL}?resetToken=${token} (valable 15 min)`);
-    } else {
-      console.log(`Jeton de réinitialisation pour ${email} : ${token} (valable 15 min, FRONT_URL non défini)`);
+    // Le jeton ne s'affiche dans la console qu'en développement local.
+    // En production, les logs de Render ne doivent jamais contenir de jeton.
+    if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') {
+      console.log(`[dev] Lien de réinitialisation pour ${email} : ${process.env.FRONT_URL || '(FRONT_URL non défini)'}?resetToken=${token}`);
     }
 
     sendMail(
