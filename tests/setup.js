@@ -16,3 +16,6 @@ afterAll(async () => {
 
 // Clé de chiffrement 2FA réservée aux tests (jamais celle de la production)
 process.env.TWO_FACTOR_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+
+// Les tests créent des sociétés via /register : on ouvre la porte d'inscription pour toute la suite
+process.env.REGISTRATION_OPEN = 'true';

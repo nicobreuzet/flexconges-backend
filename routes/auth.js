@@ -17,6 +17,12 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mot-de-passe-factice-pour-egaliser-
 
 // Inscription d'une NOUVELLE société : crée la société + son premier manager
 router.post('/register', async (req, res) => {
+
+  // Porte d'inscription : fermée par défaut, ouverte seulement si REGISTRATION_OPEN vaut "true".
+  // La variable est lue à chaque requête : on peut l'ouvrir ou la refermer sans toucher au code.
+  if (process.env.REGISTRATION_OPEN !== 'true') {
+    return res.status(403).json({ error: 'Les inscriptions sont fermées pour le moment.' });
+  }
   try {
     const { companyName, email, password, firstName, lastName } = req.body;
 
