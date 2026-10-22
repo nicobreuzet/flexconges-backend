@@ -68,6 +68,11 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
     if (!code) return res.status(400).json({ error: 'Code obligatoire' });
 
     const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+    // Refus si le 2FA est deja actif : sinon ce code regenererait les codes de recuperation
+    // sans mot de passe (la reconfiguration passe par /2fa/disable).
+    if (user.twoFactorEnabled) {
+      return res.status(409).json({ error: 'Le 2FA est d\u00e9j\u00e0 activ\u00e9. D\u00e9sactivez-le avant de le reconfigurer (mot de passe requis).' });
+    }
     if (!user.twoFactorSecret) {
       return res.status(400).json({ error: 'Aucune activation en cours. Relancez la configuration.' });
     }

@@ -72,6 +72,27 @@ describe('Authentification à deux facteurs (2FA)', () => {
     expect(after.body.enabled).toBe(true);
   });
 
+  test('verify-setup est refusé (409) quand le 2FA est déjà actif, sans toucher aux codes de récupération', async () => {
+    const company = await createCompanyWithManager('2FA-verify-deja-actif');
+    const { secret } = await enable2FA(company);
+
+    const user = await prisma.user.findUnique({ where: { email: company.email } });
+    const avant = await prisma.recoveryCode.findMany({ where: { userId: user.id } });
+    expect(avant).toHaveLength(8);
+
+    // Code valide du créneau SUIVANT : le créneau courant a été consommé par l'activation (anti-rejeu).
+    // Sans le refus, le serveur accepterait ce code et remplacerait les codes de récupération.
+    const res = await request(app)
+      .post('/2fa/verify-setup')
+      .set('Authorization', `Bearer ${company.token}`)
+      .send({ code: codeAtStep(secret, 1) });
+    expect(res.status).toBe(409);
+    expect(res.body.recoveryCodes).toBeUndefined();
+
+    const apres = await prisma.recoveryCode.findMany({ where: { userId: user.id } });
+    expect(apres.map(c => c.codeHash).sort()).toEqual(avant.map(c => c.codeHash).sort());
+  });
+
   test('Avec le 2FA actif, /login renvoie un jeton temporaire, pas un vrai jeton, et il est refusé partout', async () => {
     const company = await createCompanyWithManager('2FA-pending');
     await enable2FA(company);
