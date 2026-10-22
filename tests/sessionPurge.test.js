@@ -26,8 +26,9 @@ describe('Purge des anciennes sessions (30 jours)', () => {
     const recente = await mk(daysAgo(29));
     const aujourdhui = await mk(new Date());
 
-    const supprimees = await purgeOldSessions();
-    expect(supprimees).toBeGreaterThanOrEqual(2);
+    // On ne compte pas les suppressions : une autre suite de tests peut purger en meme temps
+    // (runPurgeSafely dans auditPurge.test.js). Les identifiants ci-dessous prouvent le resultat.
+    await purgeOldSessions();
 
     const ids = [vieille.id, vieilleRevoquee.id, recente.id, aujourdhui.id];
     const reste = await prisma.session.findMany({ where: { id: { in: ids } }, select: { id: true } });

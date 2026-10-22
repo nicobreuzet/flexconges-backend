@@ -152,6 +152,16 @@ model LeaveRequest {
   @@index([companyId])
 }
 
+model TwoFactorLoginAttempt {
+  userId      Int
+  ip          String
+  failures    Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @default(now()) @updatedAt
+  @@id([userId, ip])
+  @@index([updatedAt])
+}
+
 model Holiday {
   id        Int      @id @default(autoincrement())
   date      DateTime

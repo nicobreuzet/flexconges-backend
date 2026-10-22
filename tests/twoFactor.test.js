@@ -174,6 +174,12 @@ describe('Authentification à deux facteurs (2FA)', () => {
       where: { email: company.email },
       data: { twoFactorLockedUntil: new Date(Date.now() - 1000) }
     });
+    // Le verrou principal est maintenant par (compte, adresse IP) : on le leve aussi
+    const userRow = await prisma.user.findUnique({ where: { email: company.email } });
+    await prisma.twoFactorLoginAttempt.updateMany({
+      where: { userId: userRow.id },
+      data: { lockedUntil: new Date(Date.now() - 1000) }
+    });
     const unlocked = await request(app).post('/login/verify-2fa').send({ pendingToken: pending, code: codeAtStep(secret, 1) });
     expect(unlocked.status).toBe(200);
   });

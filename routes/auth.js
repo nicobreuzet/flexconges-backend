@@ -9,6 +9,7 @@ const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
 const { createSession, revokeUserSessions } = require('../utils/sessions');
 const { sendError } = require('../utils/httpErrors');
+const { reserveIpAttempt, clearIpAttempts } = require('../utils/twoFactorAttempts');
 const router = express.Router();
 
 // Faux hash (meme cout que les vrais : 10 tours) : sert a faire le meme travail pour un e-mail
@@ -126,7 +127,8 @@ router.post('/login', async (req, res) => {
   }
 });
 
-const MAX_2FA_ATTEMPTS = 5;
+const MAX_2FA_ATTEMPTS = 5; // echecs permis par couple (compte, adresse IP)
+const MAX_2FA_ATTEMPTS_ACCOUNT = 20; // filet : echecs permis pour le compte entier, toutes IP confondues
 const LOCK_MINUTES = 15;
 
 // Deuxième étape de connexion quand le 2FA est actif : code TOTP ou code de récupération.
@@ -167,6 +169,46 @@ router.post('/login/verify-2fa', async (req, res) => {
       return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${minutes} minute(s).` });
     }
 
+    // 1) Un ancien verrou de compte expire : on remet les compteurs a zero.
+    //    updateMany avec condition : si plusieurs requetes arrivent ensemble, une seule le fait.
+    const maintenant = new Date();
+    if (user.twoFactorLockedUntil && user.twoFactorLockedUntil <= maintenant) {
+      await prisma.user.updateMany({
+        where: { id: user.id, twoFactorLockedUntil: { lte: maintenant } },
+        data: { twoFactorFailedAttempts: 0, twoFactorLockedUntil: null }
+      });
+    }
+
+    // 2) On RESERVE l'essai AVANT de tester le code (numerotation atomique en base).
+    //    Meme avec 50 requetes simultanees, au plus MAX_2FA_ATTEMPTS codes sont testes
+    //    pour une adresse IP : les suivantes sont refusees sans toucher au code.
+    const ip = req.ip || 'inconnue';
+    const ipAttempt = await reserveIpAttempt(user.id, ip, { max: MAX_2FA_ATTEMPTS, lockMinutes: LOCK_MINUTES });
+    if (ipAttempt.failures > MAX_2FA_ATTEMPTS) {
+      const minutes = ipAttempt.lockedUntil
+        ? Math.max(1, Math.ceil((ipAttempt.lockedUntil - new Date()) / 60000))
+        : LOCK_MINUTES;
+      return res.status(429).json({ error: `Trop d'essais. R\u00e9essayez dans ${minutes} minute(s).` });
+    }
+
+    // 3) Filet de compte : meme principe pour le compte entier, toutes adresses IP confondues.
+    //    Les requetes deja refusees ci-dessus ne le consomment pas.
+    const accountState = await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorFailedAttempts: { increment: 1 } },
+      select: { twoFactorFailedAttempts: true }
+    });
+    const accountAttempts = accountState.twoFactorFailedAttempts;
+    if (accountAttempts >= MAX_2FA_ATTEMPTS_ACCOUNT) {
+      await prisma.user.updateMany({
+        where: { id: user.id, twoFactorLockedUntil: null },
+        data: { twoFactorLockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000) }
+      });
+    }
+    if (accountAttempts > MAX_2FA_ATTEMPTS_ACCOUNT) {
+      return res.status(429).json({ error: `Trop d'essais. R\u00e9essayez dans ${LOCK_MINUTES} minutes.` });
+    }
+
     const cleanCode = String(code).replace(/\s/g, '');
     let ok = await verifyTotp(user, cleanCode); 
     let methode = ok ? 'application' : null;
@@ -191,22 +233,16 @@ router.post('/login/verify-2fa', async (req, res) => {
     }
 
     if (!ok) {
-      const updated = await prisma.user.update({
-        where: { id: user.id },
-        data: { twoFactorFailedAttempts: { increment: 1 } }
-      });
-      if (updated.twoFactorFailedAttempts >= MAX_2FA_ATTEMPTS) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            twoFactorFailedAttempts: 0,
-            twoFactorLockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
-          }
-        });
-        await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.locked', details: { minutes: LOCK_MINUTES } });
-        return res.status(429).json({ error: `Trop d'essais. Réessayez dans ${LOCK_MINUTES} minutes.` });
+      // L'essai a deja ete compte (reservation plus haut) : ici on choisit seulement la reponse.
+      if (ipAttempt.failures >= MAX_2FA_ATTEMPTS) {
+        await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.locked', details: { minutes: LOCK_MINUTES, portee: 'ip' } });
+        return res.status(429).json({ error: `Trop d'essais. R\u00e9essayez dans ${LOCK_MINUTES} minutes.` });
       }
-      await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.login_failed', details: { tentative: updated.twoFactorFailedAttempts } });
+      if (accountAttempts >= MAX_2FA_ATTEMPTS_ACCOUNT) {
+        await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.locked', details: { minutes: LOCK_MINUTES, portee: 'compte' } });
+        return res.status(429).json({ error: `Trop d'essais. R\u00e9essayez dans ${LOCK_MINUTES} minutes.` });
+      }
+      await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.login_failed', details: { tentative: ipAttempt.failures } });
       return res.status(401).json({ error: 'Code invalide' });
     }
     // Succès : on remet les compteurs à zéro
@@ -224,6 +260,7 @@ router.post('/login/verify-2fa', async (req, res) => {
       where: { id: user.id },
       data: { twoFactorFailedAttempts: 0, twoFactorLockedUntil: null }
     });
+    await clearIpAttempts(user.id, ip);
 
     const token = jwt.sign(
       { userId: user.id, role: user.role, companyId: user.companyId, sid: await createSession(req, user) },

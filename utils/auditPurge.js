@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const { purgeOldSessions, SESSION_RETENTION_DAYS } = require('./sessionPurge');
 const { purgeExpiredPendingTokens } = require('./pendingTokenPurge');
+const { purgeOldTwoFactorAttempts, ATTEMPT_RETENTION_HOURS } = require('./twoFactorAttemptPurge');
 
 // Duree de conservation du journal d audit
 const RETENTION_MONTHS = 12;
@@ -43,6 +44,13 @@ async function runPurgeSafely() {
     if (p > 0) console.log('Purge des jetons temporaires : ' + p + ' jeton(s) expire(s) supprime(s)');
   } catch (error) {
     console.error('Erreur de la purge des jetons temporaires :', error.message);
+  }
+  // Echecs de 2e etape par adresse IP (donnee personnelle) : echec independant des autres purges
+  try {
+    const a = await purgeOldTwoFactorAttempts();
+    if (a > 0) console.log('Purge des echecs 2FA par adresse IP : ' + a + ' ligne(s) de plus de ' + ATTEMPT_RETENTION_HOURS + ' heures supprimee(s)');
+  } catch (error) {
+    console.error('Erreur de la purge des echecs 2FA par adresse IP :', error.message);
   }
 }
 
