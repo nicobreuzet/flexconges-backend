@@ -224,4 +224,24 @@ describe('Authentification à deux facteurs (2FA)', () => {
     expect(typeof login.body.token).toBe('string');
     expect(login.body.requiresTwoFactor).toBeUndefined();
   });
+
+  test('Un jeton temporaire ne sert qu\'une fois : rejoue apres un succes, il est refuse', async () => {
+    const company = await createCompanyWithManager('2FA-pending-usage-unique');
+    const { recoveryCodes } = await enable2FA(company);
+    const pendingToken = await loginPending(company);
+
+    const first = await request(app).post('/login/verify-2fa').send({ pendingToken, code: recoveryCodes[0] });
+    expect(first.status).toBe(200);
+    expect(first.body.token).toBeTruthy();
+
+    // Meme jeton temporaire, autre code de recuperation valide : doit etre refuse
+    const replay = await request(app).post('/login/verify-2fa').send({ pendingToken, code: recoveryCodes[1] });
+    expect(replay.status).toBe(401);
+    expect(replay.body.token).toBeUndefined();
+
+    // Le refus arrive AVANT le test du code : le deuxieme code de recuperation n'est pas consomme
+    const user = await prisma.user.findUnique({ where: { email: company.email } });
+    const used = await prisma.recoveryCode.count({ where: { userId: user.id, used: true } });
+    expect(used).toBe(1);
+  });
 });

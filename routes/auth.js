@@ -107,7 +107,7 @@ router.post('/login', async (req, res) => {
       // jeton. Ce jeton temporaire n'a pas de companyId, donc toutes les routes
       // protégées le refusent automatiquement (voir middlewares/auth.js).
       const pendingToken = jwt.sign(
-        { userId: user.id, pending2FA: true },
+        { userId: user.id, pending2FA: true, jti: crypto.randomUUID() },
         process.env.JWT_SECRET,
         { expiresIn: '5m' }
       );
@@ -146,6 +146,14 @@ router.post('/login/verify-2fa', async (req, res) => {
     }
     if (!decoded.pending2FA) {
       return res.status(401).json({ error: 'Jeton invalide' });
+    }
+    // Jeton temporaire sans identifiant (emis avant ce controle) ou deja utilise : refuse
+    if (!decoded.jti) {
+      return res.status(401).json({ error: 'Session de connexion expir\u00e9e, recommencez' });
+    }
+    const alreadyUsed = await prisma.usedPendingToken.findUnique({ where: { jti: decoded.jti } });
+    if (alreadyUsed) {
+      return res.status(401).json({ error: 'Session de connexion d\u00e9j\u00e0 utilis\u00e9e, recommencez' });
     }
 
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
@@ -202,6 +210,16 @@ router.post('/login/verify-2fa', async (req, res) => {
       return res.status(401).json({ error: 'Code invalide' });
     }
     // Succès : on remet les compteurs à zéro
+        // Le jeton temporaire est consomme ici : la cle primaire (jti) est unique, donc
+    // si deux requetes arrivent en meme temps avec le meme jeton, une seule peut le reserver.
+    try {
+      await prisma.usedPendingToken.create({ data: { jti: decoded.jti, expiresAt: new Date(decoded.exp * 1000) } });
+    } catch (e) {
+      if (e.code === 'P2002') {
+        return res.status(401).json({ error: 'Session de connexion d\u00e9j\u00e0 utilis\u00e9e, recommencez' });
+      }
+      throw e;
+    }
     await prisma.user.update({
       where: { id: user.id },
       data: { twoFactorFailedAttempts: 0, twoFactorLockedUntil: null }

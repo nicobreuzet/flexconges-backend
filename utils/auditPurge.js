@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { purgeOldSessions, SESSION_RETENTION_DAYS } = require('./sessionPurge');
+const { purgeExpiredPendingTokens } = require('./pendingTokenPurge');
 
 // Duree de conservation du journal d audit
 const RETENTION_MONTHS = 12;
@@ -35,6 +36,13 @@ async function runPurgeSafely() {
     if (s > 0) console.log('Purge des sessions : ' + s + ' session(s) de plus de ' + SESSION_RETENTION_DAYS + ' jours supprimee(s)');
   } catch (error) {
     console.error('Erreur de la purge des sessions :', error.message);
+  }
+  // Jetons temporaires de connexion deja utilises et expires : echec independant des autres purges
+  try {
+    const p = await purgeExpiredPendingTokens();
+    if (p > 0) console.log('Purge des jetons temporaires : ' + p + ' jeton(s) expire(s) supprime(s)');
+  } catch (error) {
+    console.error('Erreur de la purge des jetons temporaires :', error.message);
   }
 }
 

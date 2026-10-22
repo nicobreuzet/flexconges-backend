@@ -196,3 +196,12 @@ model AuditLog {
 
   @@index([companyId, createdAt])
 }
+
+// Jetons temporaires de connexion (2e etape 2FA) deja utilises : un jeton ne sert qu une fois.
+// Le jti est la cle primaire : inserer deux fois le meme jeton est impossible (atomique).
+model UsedPendingToken {
+  jti       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
