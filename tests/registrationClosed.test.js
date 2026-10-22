@@ -25,13 +25,12 @@ describe('Porte d\'inscription /register', () => {
   test('refuse l\'inscription quand la variable est absente, sans rien créer', async () => {
     delete process.env.REGISTRATION_OPEN;
     const body = corps();
-    const avant = await prisma.company.count();
 
     const res = await request(app).post('/register').send(body);
 
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/fermées/);
-    expect(await prisma.company.count()).toBe(avant);
+    expect(await prisma.company.findFirst({ where: { name: body.companyName } })).toBeNull();
     expect(await prisma.user.findUnique({ where: { email: body.email } })).toBeNull();
   });
 
