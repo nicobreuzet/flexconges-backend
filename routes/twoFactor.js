@@ -119,8 +119,10 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
   }
 });
 
+const { disable2faLimiter } = require('../middlewares/rateLimit');
+
 // Désactive le 2FA (redemande le mot de passe par sécurité)
-router.post('/2fa/disable', authenticate, async (req, res) => {
+router.post('/2fa/disable', authenticate, disable2faLimiter, async (req, res) => {
   try {
     const { password } = req.body;
     if (!password) return res.status(400).json({ error: 'Mot de passe obligatoire' });

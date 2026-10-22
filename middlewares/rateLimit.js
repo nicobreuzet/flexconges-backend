@@ -46,4 +46,17 @@ const sensitiveIpLimiter = rateLimit({
   message: { error: 'Trop de demandes depuis cette adresse. Réessayez plus tard.' }
 });
 
-module.exports = { authIpLimiter, loginEmailLimiter, sensitiveIpLimiter };
+// 4) Par COMPTE connecté, sur /2fa/disable : seuls les mots de passe incorrects comptent.
+// Il se place dans la route, APRÈS authenticate, car c'est authenticate qui fournit req.user.
+const disable2faLimiter = rateLimit({
+  windowMs: FIFTEEN_MIN,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.user.userId),
+  skip: skipInTests,
+  message: { error: 'Trop de tentatives. Réessayez dans 15 minutes.' }
+});
+
+module.exports = { authIpLimiter, loginEmailLimiter, sensitiveIpLimiter, disable2faLimiter };
