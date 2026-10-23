@@ -9,7 +9,7 @@ function uniq() {
 // Crée une société + son manager, puis connecte le manager
 async function createCompanyWithManager(label = 'A') {
   const email = `manager${uniq()}@test.com`;
-  const password = 'motdepasse123';
+  const password = 'Motdepasse123!';
 
   const reg = await request(app).post('/register').send({
     companyName: `Societe ${label} ${uniq()}`,

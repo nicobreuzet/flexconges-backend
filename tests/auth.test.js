@@ -7,7 +7,7 @@ describe('Authentification et inscription', () => {
   const registration = {
     companyName: `Societe Auth ${unique}`,
     email: `auth${unique}@test.com`,
-    password: 'motdepasse123',
+    password: 'Motdepasse123!',
     firstName: 'Test',
     lastName: 'User',
     role: 'employee' // le client tente d'imposer un rôle : il doit être ignoré
@@ -55,7 +55,7 @@ describe('Authentification et inscription', () => {
 
   test('POST /register refuse un champ obligatoire manquant', async () => {
     const res = await request(app).post('/register').send({
-      email: `x${unique}@test.com`, password: 'motdepasse123', firstName: 'A', lastName: 'B'
+      email: `x${unique}@test.com`, password: 'Motdepasse123!', firstName: 'A', lastName: 'B'
     }); // pas de companyName
     expect(res.status).toBe(400);
   });

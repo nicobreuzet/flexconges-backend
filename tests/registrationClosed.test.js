@@ -16,7 +16,7 @@ describe('Porte d\'inscription /register', () => {
     return {
       companyName: `Societe fermee ${id}`,
       email: `ferme${id}@test.com`,
-      password: 'motdepasse123',
+      password: 'Motdepasse123!',
       firstName: 'Test',
       lastName: 'Ferme'
     };

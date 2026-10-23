@@ -10,6 +10,7 @@ const { logAudit } = require('../utils/audit');
 const { createSession, revokeUserSessions } = require('../utils/sessions');
 const { sendError } = require('../utils/httpErrors');
 const { reserveIpAttempt, clearIpAttempts } = require('../utils/twoFactorAttempts');
+const { validatePassword } = require('../utils/passwordPolicy');
 const router = express.Router();
 
 // Faux hash (meme cout que les vrais : 10 tours) : sert a faire le meme travail pour un e-mail
@@ -32,8 +33,9 @@ router.post('/register', async (req, res) => {
         error: 'Société, e-mail, mot de passe, prénom et nom sont obligatoires'
       });
     }
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères' });
+    const passwordError = validatePassword(password, { email });
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
     }
 
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -318,15 +320,19 @@ router.post('/reset-password', async (req, res) => {
     const { token, password } = req.body;
     if (!token || !password) return res.status(400).json({ error: 'Jeton et mot de passe obligatoires' });
 
-    if (password.length < 12 || !/[A-Z]/.test(password) || !/[0-9]/.test(password) || !/[!@#$%^&*]/.test(password)) {
-      return res.status(400).json({
-        error: 'Le mot de passe doit contenir au moins 12 caractères, une majuscule, un chiffre et un caractère spécial'
-      });
+    const passwordFormatError = validatePassword(password);
+    if (passwordFormatError) {
+      return res.status(400).json({ error: passwordFormatError });
     }
 
     const user = await prisma.user.findUnique({ where: { resetToken: token } });
     if (!user || !user.resetTokenExpires || user.resetTokenExpires < new Date()) {
       return res.status(400).json({ error: 'Lien invalide ou expiré' });
+    }
+
+    const passwordEmailError = validatePassword(password, { email: user.email });
+    if (passwordEmailError) {
+      return res.status(400).json({ error: passwordEmailError });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
