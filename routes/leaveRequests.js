@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const { authenticate, requireManager } = require('../middlewares/auth');
+const { countOtherActiveManagers } = require('../utils/managerRules');
 const { countWorkdays, hasOverlappingRequest } = require('../utils/workdays');
 const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
@@ -122,7 +123,7 @@ router.post('/leave-requests', authenticate, async (req, res) => {
 
     // Notification email aux managers de CETTE société uniquement
     const managers = await prisma.user.findMany({
-      where: { role: 'manager', isActive: true, companyId }
+      where: { role: 'manager', isActive: true, companyId, id: { not: req.user.userId } }
     });
     const requester = await prisma.user.findUnique({ where: { id: req.user.userId } });
 
@@ -148,8 +149,13 @@ router.get('/leave-requests/me', authenticate, async (req, res) => {
 });
 
 router.get('/leave-requests/pending', authenticate, requireManager, async (req, res) => {
+  const pendingWhere = { status: 'pending', companyId: req.user.companyId };
+  // Un responsable ne voit pas sa propre demande tant qu'un autre responsable actif peut la valider
+  if ((await countOtherActiveManagers(req.user.companyId, req.user.userId)) > 0) {
+    pendingWhere.userId = { not: req.user.userId };
+  }
   const requests = await prisma.leaveRequest.findMany({
-    where: { status: 'pending', companyId: req.user.companyId },
+    where: pendingWhere,
     include: {
       leaveType: true,
       user: { select: { id: true, firstName: true, lastName: true, email: true } }
@@ -173,6 +179,13 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
     });
     if (!existingRequest) return res.status(404).json({ error: 'Demande introuvable' });
     if (existingRequest.status !== 'pending') return res.status(400).json({ error: 'Cette demande a déjà été traitée' });
+    // Un responsable ne valide pas sa propre demande tant qu'un autre responsable actif existe.
+    // S'il est le seul responsable, il peut la valider : l'audit le marque (autoValidation).
+    const estSaDemande = existingRequest.userId === req.user.userId;
+    if (estSaDemande && (await countOtherActiveManagers(req.user.companyId, req.user.userId)) > 0) {
+      return res.status(403).json({ error: "Vous ne pouvez pas valider votre propre demande : un autre responsable doit s'en charger." });
+    }
+    const autoValidation = estSaDemande;
 
     const year = existingRequest.startDate.getFullYear();
     const balance = await prisma.leaveBalance.findUnique({
@@ -198,7 +211,7 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
 
     await logAudit(req, {
       companyId: req.user.companyId, userId: req.user.userId, action: decision === 'approved' ? 'leave.approved' : 'leave.rejected',
-      details: { demandeId: existingRequest.id, collaborateur: updatedRequest.user.firstName + ' ' + updatedRequest.user.lastName, typeConge: updatedRequest.leaveType.label, du: jour(existingRequest.startDate), au: jour(existingRequest.endDate), jours: Number(existingRequest.daysCount) }
+      details: { demandeId: existingRequest.id, ...(autoValidation ? { autoValidation: true } : {}), collaborateur: updatedRequest.user.firstName + ' ' + updatedRequest.user.lastName, typeConge: updatedRequest.leaveType.label, du: jour(existingRequest.startDate), au: jour(existingRequest.endDate), jours: Number(existingRequest.daysCount) }
     });
     res.json(updatedRequest);
 
@@ -329,7 +342,7 @@ router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
     });
     res.json(updatedRequest);
 
-    const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true, companyId } });
+    const managers = await prisma.user.findMany({ where: { role: 'manager', isActive: true, companyId, id: { not: req.user.userId } } });
     const requester = await prisma.user.findUnique({ where: { id: req.user.userId } });
     for (const manager of managers) {
       sendMail(
