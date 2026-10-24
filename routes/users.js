@@ -8,6 +8,7 @@ const { logAudit } = require('../utils/audit');
 const { revokeUserSessions } = require('../utils/sessions');
 
 const { sendError } = require('../utils/httpErrors');
+const { normalizeEmail } = require('../utils/normalizeEmail');
 const router = express.Router();
 
 const SAFE_USER_FIELDS = {
@@ -60,10 +61,14 @@ router.get('/users', authenticate, requireManager, async (req, res) => {
 router.post('/users', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { email, firstName, lastName, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
+    const { email: rawEmail, firstName, lastName, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
 
-    if (!email || !firstName || !lastName || !role) {
+    if (!rawEmail || !firstName || !lastName || !role) {
       return res.status(400).json({ error: 'Email, prénom, nom et rôle sont obligatoires' });
+    }
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return res.status(400).json({ error: 'Adresse e-mail invalide' });
     }
 
     const teamFields = await resolveTeamFields(teamId, companyId);
@@ -133,7 +138,13 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 router.put('/users/:id', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { firstName, lastName, email, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
+    const { firstName, lastName, email: rawEmail, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
+
+    let email;
+    if (rawEmail !== undefined) {
+      email = normalizeEmail(rawEmail);
+      if (!email) return res.status(400).json({ error: 'Adresse e-mail invalide' });
+    }
 
     const existing = await findUserInCompany(req.params.id, companyId);
     if (!existing) return res.status(404).json({ error: 'Utilisateur introuvable' });
@@ -158,7 +169,8 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
     }
     const champsModifies = [];
     for (const f of ['firstName', 'lastName', 'email']) {
-      if (req.body[f] !== undefined && req.body[f] !== existing[f]) champsModifies.push(f);
+      const envoye = f === 'email' ? email : req.body[f];
+      if (envoye !== undefined && envoye !== existing[f]) champsModifies.push(f);
     }
     if ((phone || null) !== existing.phone) champsModifies.push('phone');
     if ((address || null) !== existing.address) champsModifies.push('address');

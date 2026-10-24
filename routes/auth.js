@@ -11,6 +11,7 @@ const { createSession, revokeUserSessions } = require('../utils/sessions');
 const { sendError } = require('../utils/httpErrors');
 const { reserveIpAttempt, clearIpAttempts } = require('../utils/twoFactorAttempts');
 const { validatePassword } = require('../utils/passwordPolicy');
+const { normalizeEmail } = require('../utils/normalizeEmail');
 const router = express.Router();
 
 // Faux hash (meme cout que les vrais : 10 tours) : sert a faire le meme travail pour un e-mail
@@ -26,12 +27,16 @@ router.post('/register', async (req, res) => {
     return res.status(403).json({ error: 'Les inscriptions sont fermées pour le moment.' });
   }
   try {
-    const { companyName, email, password, firstName, lastName } = req.body;
+    const { companyName, email: rawEmail, password, firstName, lastName } = req.body;
 
-    if (!companyName || !email || !password || !firstName || !lastName) {
+    if (!companyName || !rawEmail || !password || !firstName || !lastName) {
       return res.status(400).json({
         error: 'Société, e-mail, mot de passe, prénom et nom sont obligatoires'
       });
+    }
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return res.status(400).json({ error: 'Adresse e-mail invalide' });
     }
     const passwordError = validatePassword(password, { email });
     if (passwordError) {
@@ -83,9 +88,13 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+    const { email: rawEmail, password } = req.body;
+    if (typeof rawEmail !== 'string' || typeof password !== 'string' || !rawEmail || !password) {
       return res.status(400).json({ error: 'E-mail et mot de passe obligatoires' });
+    }
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return res.status(400).json({ error: 'Adresse e-mail invalide' });
     }
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -279,8 +288,10 @@ router.post('/login/verify-2fa', async (req, res) => {
 // Demande de réinitialisation : envoie un lien à usage unique, valable 15 minutes
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email obligatoire' });
+    const { email: rawEmail } = req.body;
+    if (!rawEmail) return res.status(400).json({ error: 'Email obligatoire' });
+    const email = normalizeEmail(rawEmail);
+    if (!email) return res.status(400).json({ error: 'Adresse e-mail invalide' });
 
     const genericResponse = { message: 'Si cet e-mail existe, un lien de réinitialisation a été envoyé.' };
 
