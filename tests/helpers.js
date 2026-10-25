@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('../server');
 const prisma = require('../config/prisma');
+const { createInvitation } = require('../utils/invitations');
 
 function uniq() {
   return `${Date.now()}${Math.floor(Math.random() * 1000000)}`;
@@ -11,9 +12,11 @@ async function createCompanyWithManager(label = 'A') {
   const email = `manager${uniq()}@test.com`;
   const password = 'Motdepasse123!';
 
+  // /register exige une invitation : on en cree une pour cette adresse, directement en base.
+  const { token: invitationToken } = await createInvitation(email);
   const reg = await request(app).post('/register').send({
     companyName: `Societe ${label} ${uniq()}`,
-    email, password, firstName: 'Test', lastName: 'Manager'
+    email, password, firstName: 'Test', lastName: 'Manager', invitationToken
   });
   if (reg.status !== 201) {
     throw new Error(`Création de société échouée : ${reg.status} ${JSON.stringify(reg.body)}`);

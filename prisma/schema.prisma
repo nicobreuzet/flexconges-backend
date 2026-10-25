@@ -217,3 +217,14 @@ model UsedPendingToken {
   createdAt DateTime @default(now())
   @@index([expiresAt])
 }
+
+model CompanyInvitation {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique
+  email     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  companyId Int?
+  createdAt DateTime  @default(now())
+  @@index([expiresAt])
+}

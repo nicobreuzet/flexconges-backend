@@ -133,7 +133,7 @@ describe('Journal d audit B6 : actions metier', () => {
     const company = await createCompanyWithManager('audit-register');
     const items = await logsOf(company.token, 'company.registered');
     expect(items).toHaveLength(1);
-    expect(items[0].details).toEqual({ societe: company.company.name });
+    expect(items[0].details).toEqual({ societe: company.company.name, invitationId: expect.any(Number) });
     expect(items[0].user.id).toBe(company.manager.id);
   }, 30000);
 });

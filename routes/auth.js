@@ -13,6 +13,7 @@ const { reserveIpAttempt, clearIpAttempts } = require('../utils/twoFactorAttempt
 const { sendLockAlert } = require('../utils/twoFactorLockAlert');
 const { validatePassword } = require('../utils/passwordPolicy');
 const { normalizeEmail } = require('../utils/normalizeEmail');
+const { hashInvitationToken } = require('../utils/invitations');
 const router = express.Router();
 
 // Faux hash (meme cout que les vrais : 10 tours) : sert a faire le meme travail pour un e-mail
@@ -28,7 +29,7 @@ router.post('/register', async (req, res) => {
     return res.status(403).json({ error: 'Les inscriptions sont fermées pour le moment.' });
   }
   try {
-    const { companyName, email: rawEmail, password, firstName, lastName } = req.body;
+    const { companyName, email: rawEmail, password, firstName, lastName, invitationToken } = req.body;
 
     if (!companyName || !rawEmail || !password || !firstName || !lastName) {
       return res.status(400).json({
@@ -44,6 +45,17 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: passwordError });
     }
 
+    // Invitation : sans jeton valide, lie a cette adresse et encore libre, on n'ouvre pas de cabinet.
+    // Un seul message pour tous les cas : on n'apprend rien a celui qui essaie.
+    // Ce controle passe AVANT le doublon d'adresse : sinon le 409 reveillerait quelles adresses ont un compte.
+    const invitationHash = hashInvitationToken(invitationToken);
+    const invitation = invitationHash
+      ? await prisma.companyInvitation.findUnique({ where: { tokenHash: invitationHash } })
+      : null;
+    if (!invitation || invitation.usedAt || invitation.expiresAt <= new Date() || invitation.email !== email) {
+      return res.status(403).json({ error: 'Invitation invalide ou expir\u00e9e.' });
+    }
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       return res.status(409).json({ error: 'Cet e-mail est déjà utilisé' });
@@ -53,7 +65,19 @@ router.post('/register', async (req, res) => {
     const year = new Date().getFullYear();
 
     const result = await prisma.$transaction(async (tx) => {
+      // Premier geste : prendre l'invitation. La mise a jour n'a lieu que si elle est encore libre et valide :
+      // de deux requetes simultanees, une seule obtient count 1.
+      const claim = await tx.companyInvitation.updateMany({
+        where: { id: invitation.id, usedAt: null, expiresAt: { gt: new Date() } },
+        data: { usedAt: new Date() }
+      });
+      if (claim.count !== 1) return null; // rien n'a ete ecrit : rien a annuler
+
       const company = await tx.company.create({ data: { name: companyName } });
+      await tx.companyInvitation.update({
+        where: { id: invitation.id },
+        data: { companyId: company.id }
+      });
 
       await createDefaultLeaveTypes(tx, company.id);
 
@@ -79,8 +103,13 @@ router.post('/register', async (req, res) => {
       return { company, user };
     });
 
+    // Invitation prise par une autre requete entre-temps : rien n'a ete cree.
+    if (!result) {
+      return res.status(403).json({ error: 'Invitation invalide ou expir\u00e9e.' });
+    }
+
     const { password: _, ...userWithoutPassword } = result.user;
-    await logAudit(req, { companyId: result.company.id, userId: result.user.id, action: 'company.registered', details: { societe: result.company.name } });
+    await logAudit(req, { companyId: result.company.id, userId: result.user.id, action: 'company.registered', details: { societe: result.company.name, invitationId: invitation.id } });
     res.status(201).json({ company: result.company, user: userWithoutPassword });
   } catch (error) {
     sendError(req, res, error);

@@ -1,6 +1,7 @@
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const app = require('../server');
+const { createInvitation } = require('../utils/invitations');
 
 describe('Authentification et inscription', () => {
   const unique = `${Date.now()}${Math.floor(Math.random() * 1000000)}`;
@@ -14,7 +15,8 @@ describe('Authentification et inscription', () => {
   };
 
   test('POST /register crée une société et son premier manager', async () => {
-    const res = await request(app).post('/register').send(registration);
+    const { token: invitationToken } = await createInvitation(registration.email);
+    const res = await request(app).post('/register').send({ ...registration, invitationToken });
     expect(res.status).toBe(201);
     expect(res.body.company.name).toBe(registration.companyName);
     expect(res.body.user.email).toBe(registration.email);
@@ -47,8 +49,10 @@ describe('Authentification et inscription', () => {
   });
 
   test('POST /register refuse un e-mail déjà utilisé', async () => {
+    // Une invitation valide existe pour cette adresse, mais un compte existe deja : 409.
+    const { token: invitationToken } = await createInvitation(registration.email);
     const res = await request(app).post('/register').send({
-      ...registration, companyName: `Autre societe ${unique}`
+      ...registration, companyName: `Autre societe ${unique}`, invitationToken
     });
     expect(res.status).toBe(409);
   });

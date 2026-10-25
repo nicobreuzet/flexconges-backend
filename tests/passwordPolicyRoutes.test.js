@@ -2,6 +2,7 @@ const request = require('supertest');
 const app = require('../server');
 const prisma = require('../config/prisma');
 const { createCompanyWithManager } = require('./helpers');
+const { createInvitation } = require('../utils/invitations');
 
 const uniq = () => `${Date.now()}${Math.floor(Math.random() * 1000000)}`;
 
@@ -52,7 +53,8 @@ describe("Regle de mot de passe a l'inscription (/register)", () => {
 
   test("accepte un mot de passe conforme dont le seul caractere special est un tiret", async () => {
     const body = corpsInscription({ password: 'Abcdefghij-1' });
-    const res = await request(app).post('/register').send(body);
+    const { token: invitationToken } = await createInvitation(body.email);
+    const res = await request(app).post('/register').send({ ...body, invitationToken });
     expect(res.status).toBe(201);
   });
 });

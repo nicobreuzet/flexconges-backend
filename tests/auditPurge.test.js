@@ -25,8 +25,7 @@ describe('Purge du journal d audit (12 mois)', () => {
     const vieuxB = await mk(B, monthsAgo(24), 'test.purge.vieux');
     const recentB = await mk(B, new Date(), 'test.purge.recent');
 
-    const supprimees = await purgeOldAuditLogs();
-    expect(supprimees).toBeGreaterThanOrEqual(3); // vieuxA, limiteA, vieuxB (au moins)
+    await purgeOldAuditLogs(); // pas de comptage global : d autres fichiers lancent la meme purge en parallele
 
     const ids = [vieuxA.id, limiteA.id, justeAvantA.id, recentA.id, vieuxB.id, recentB.id];
     const reste = await prisma.auditLog.findMany({ where: { id: { in: ids } }, select: { id: true } });

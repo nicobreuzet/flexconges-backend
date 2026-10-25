@@ -2,6 +2,7 @@ const request = require('supertest');
 const app = require('../server');
 const prisma = require('../config/prisma');
 const { createCompanyWithManager } = require('./helpers');
+const { createInvitation } = require('../utils/invitations');
 
 const uniq = () => `${Date.now()}${Math.floor(Math.random() * 1000000)}`;
 
@@ -20,7 +21,8 @@ function corpsInscription(overrides = {}) {
 describe('Normalisation des e-mails a l inscription (/register)', () => {
   test('temoin : une adresse deja propre est enregistree telle quelle', async () => {
     const body = corpsInscription();
-    const res = await request(app).post('/register').send(body);
+    const { token: invitationToken } = await createInvitation(body.email);
+    const res = await request(app).post('/register').send({ ...body, invitationToken });
     expect(res.status).toBe(201);
     const user = await prisma.user.findUnique({ where: { email: body.email } });
     expect(user).not.toBeNull();
@@ -28,7 +30,8 @@ describe('Normalisation des e-mails a l inscription (/register)', () => {
 
   test('enregistre l adresse en minuscules et sans espaces', async () => {
     const base = corpsInscription();
-    const res = await request(app).post('/register').send({ ...base, email: `  ${base.email.toUpperCase()}  ` });
+    const { token: invitationToken } = await createInvitation(base.email);
+    const res = await request(app).post('/register').send({ ...base, email: `  ${base.email.toUpperCase()}  `, invitationToken });
     expect(res.status).toBe(201);
     const user = await prisma.user.findUnique({ where: { email: base.email } });
     expect(user).not.toBeNull();
@@ -37,12 +40,15 @@ describe('Normalisation des e-mails a l inscription (/register)', () => {
 
   test('deux casses differentes ne creent qu un seul compte', async () => {
     const base = corpsInscription();
-    const premier = await request(app).post('/register').send(base);
+    const { token: tokenPremier } = await createInvitation(base.email);
+    const premier = await request(app).post('/register').send({ ...base, invitationToken: tokenPremier });
     expect(premier.status).toBe(201);
 
     const secondeSociete = `${base.companyName} bis`;
+    // Une invitation valide pour cette adresse : le refus attendu vient bien du doublon (409), pas de l'invitation.
+    const { token: tokenSecond } = await createInvitation(base.email);
     const second = await request(app).post('/register').send({
-      ...base, companyName: secondeSociete, email: base.email.toUpperCase()
+      ...base, companyName: secondeSociete, email: base.email.toUpperCase(), invitationToken: tokenSecond
     });
     expect(second.status).toBe(409);
 

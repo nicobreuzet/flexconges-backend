@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('../server');
 const prisma = require('../config/prisma');
+const { createInvitation } = require('../utils/invitations');
 
 describe('Porte d\'inscription /register', () => {
   const valeurInitiale = process.env.REGISTRATION_OPEN;
@@ -42,7 +43,9 @@ describe('Porte d\'inscription /register', () => {
 
   test('accepte l\'inscription quand la variable vaut "true"', async () => {
     process.env.REGISTRATION_OPEN = 'true';
-    const res = await request(app).post('/register').send(corps());
+    const b = corps();
+    const { token } = await createInvitation(b.email);
+    const res = await request(app).post('/register').send({ ...b, invitationToken: token });
     expect(res.status).toBe(201);
   });
 });
