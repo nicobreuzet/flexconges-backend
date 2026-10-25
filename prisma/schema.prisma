@@ -83,6 +83,8 @@ model User {
   twoFactorFailedAttempts Int       @default(0)
   twoFactorLockedUntil    DateTime?
   twoFactorLastStep       Int?
+  twoFactorAlertIpAt      DateTime?
+  twoFactorAlertAccountAt DateTime?
 
   company     Company   @relation(fields: [companyId], references: [id])
   companyId   Int

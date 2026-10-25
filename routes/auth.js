@@ -10,6 +10,7 @@ const { logAudit } = require('../utils/audit');
 const { createSession, revokeUserSessions } = require('../utils/sessions');
 const { sendError } = require('../utils/httpErrors');
 const { reserveIpAttempt, clearIpAttempts } = require('../utils/twoFactorAttempts');
+const { sendLockAlert } = require('../utils/twoFactorLockAlert');
 const { validatePassword } = require('../utils/passwordPolicy');
 const { normalizeEmail } = require('../utils/normalizeEmail');
 const router = express.Router();
@@ -141,6 +142,7 @@ router.post('/login', async (req, res) => {
 const MAX_2FA_ATTEMPTS = 5; // echecs permis par couple (compte, adresse IP)
 const MAX_2FA_ATTEMPTS_ACCOUNT = 20; // filet : echecs permis pour le compte entier, toutes IP confondues
 const LOCK_MINUTES = 15;
+const LOCK_ALERT_OPTS = { maxIp: MAX_2FA_ATTEMPTS, maxAccount: MAX_2FA_ATTEMPTS_ACCOUNT, lockMinutes: LOCK_MINUTES };
 
 // Deuxième étape de connexion quand le 2FA est actif : code TOTP ou code de récupération.
 // Après 5 codes faux d'affilée, le compte est verrouillé 15 minutes pour cette étape.
@@ -245,12 +247,15 @@ router.post('/login/verify-2fa', async (req, res) => {
 
     if (!ok) {
       // L'essai a deja ete compte (reservation plus haut) : ici on choisit seulement la reponse.
-      if (ipAttempt.failures >= MAX_2FA_ATTEMPTS) {
+      // Si le filet de compte est atteint, c'est lui qui prime (etiquette 'compte', alerte aux responsables).
+      if (ipAttempt.failures >= MAX_2FA_ATTEMPTS && accountAttempts < MAX_2FA_ATTEMPTS_ACCOUNT) {
         await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.locked', details: { minutes: LOCK_MINUTES, portee: 'ip' } });
+        await sendLockAlert(user, 'ip', LOCK_ALERT_OPTS);
         return res.status(429).json({ error: `Trop d'essais. R\u00e9essayez dans ${LOCK_MINUTES} minutes.` });
       }
       if (accountAttempts >= MAX_2FA_ATTEMPTS_ACCOUNT) {
         await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.locked', details: { minutes: LOCK_MINUTES, portee: 'compte' } });
+        await sendLockAlert(user, 'compte', LOCK_ALERT_OPTS);
         return res.status(429).json({ error: `Trop d'essais. R\u00e9essayez dans ${LOCK_MINUTES} minutes.` });
       }
       await logAudit(req, { companyId: user.companyId, userId: user.id, action: 'twofactor.login_failed', details: { tentative: ipAttempt.failures } });
