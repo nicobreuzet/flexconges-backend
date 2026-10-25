@@ -31,10 +31,11 @@ app.get('/', (req, res) => {
 });
 
 // Limites anti-force-brute (voir middlewares/rateLimit.js)
-const { authIpLimiter, loginEmailLimiter, sensitiveIpLimiter } = require('./middlewares/rateLimit');
+const { authIpLimiter, loginEmailLimiter, forgotPasswordIpLimiter, registerIpLimiter } = require('./middlewares/rateLimit');
 app.use(['/login', '/reset-password'], authIpLimiter);
 app.use('/login', loginEmailLimiter); // ignore /login/verify-2fa (pas d'e-mail dans la requête)
-app.use(['/forgot-password', '/register'], sensitiveIpLimiter);
+app.use('/forgot-password', forgotPasswordIpLimiter);
+app.use('/register', registerIpLimiter);
 
 app.use('/', authRoutes);
 app.use('/', usersRoutes);

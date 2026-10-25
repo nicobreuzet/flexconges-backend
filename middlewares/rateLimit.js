@@ -37,14 +37,19 @@ const loginEmailLimiter = rateLimit({
 });
 
 // 3) Routes qui envoient un e-mail ou créent un compte : on limite tout, même les succès.
-const sensitiveIpLimiter = rateLimit({
-  windowMs: ONE_HOUR,
-  limit: 10,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  skip: skipInTests,
-  message: { error: 'Trop de demandes depuis cette adresse. Réessayez plus tard.' }
-});
+// Chaque route a son PROPRE limiteur (donc son propre compteur) : en épuiser un ne bloque pas l'autre.
+function hourlyIpLimiter() {
+  return rateLimit({
+    windowMs: ONE_HOUR,
+    limit: 10,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    skip: skipInTests,
+    message: { error: 'Trop de demandes depuis cette adresse. Réessayez plus tard.' }
+  });
+}
+const forgotPasswordIpLimiter = hourlyIpLimiter();
+const registerIpLimiter = hourlyIpLimiter();
 
 // 4) Par COMPTE connecté, sur /2fa/disable : seuls les mots de passe incorrects comptent.
 // Il se place dans la route, APRÈS authenticate, car c'est authenticate qui fournit req.user.
@@ -59,4 +64,4 @@ const disable2faLimiter = rateLimit({
   message: { error: 'Trop de tentatives. Réessayez dans 15 minutes.' }
 });
 
-module.exports = { authIpLimiter, loginEmailLimiter, sensitiveIpLimiter, disable2faLimiter };
+module.exports = { authIpLimiter, loginEmailLimiter, forgotPasswordIpLimiter, registerIpLimiter, disable2faLimiter };
