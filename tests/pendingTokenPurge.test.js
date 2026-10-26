@@ -14,9 +14,10 @@ describe('Purge des jetons temporaires utilises', () => {
       ]
     });
 
-    const count = await purgeExpiredPendingTokens(now);
+    // On ne compte pas les suppressions : la purge est globale et un autre fichier de test peut
+    // avoir deja efface ce jeton. On verifie seulement le sort des deux jetons de CE test.
+    await purgeExpiredPendingTokens(now);
 
-    expect(count).toBeGreaterThanOrEqual(1);
     expect(await prisma.usedPendingToken.findUnique({ where: { jti: expired } })).toBeNull();
     expect(await prisma.usedPendingToken.findUnique({ where: { jti: valid } })).not.toBeNull();
 
