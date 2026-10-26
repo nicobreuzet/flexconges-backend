@@ -108,9 +108,15 @@ router.post('/register', async (req, res) => {
       return res.status(403).json({ error: 'Invitation invalide ou expir\u00e9e.' });
     }
 
-    const { password: _, ...userWithoutPassword } = result.user;
+    // Liste d'inclusion : on nomme les champs renvoyes. Une colonne ajoutee plus tard au modele ne sort jamais sans decision.
+    const publicCompany = { id: result.company.id, name: result.company.name };
+    const publicUser = {
+      id: result.user.id, email: result.user.email,
+      firstName: result.user.firstName, lastName: result.user.lastName,
+      role: result.user.role, companyId: result.user.companyId
+    };
     await logAudit(req, { companyId: result.company.id, userId: result.user.id, action: 'company.registered', details: { societe: result.company.name, invitationId: invitation.id } });
-    res.status(201).json({ company: result.company, user: userWithoutPassword });
+    res.status(201).json({ company: publicCompany, user: publicUser });
   } catch (error) {
     sendError(req, res, error);
   }
