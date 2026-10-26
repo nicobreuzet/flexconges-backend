@@ -30,6 +30,12 @@ app.get('/', (req, res) => {
   res.send('Bienvenue sur l\'API FlexCongés !');
 });
 
+// Route de sante : repond sans toucher a la base, sans identification, sans aucun detail.
+// Placee AVANT les limiteurs : un controle de panne ne doit jamais etre arrete par un compteur.
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // Limites anti-force-brute (voir middlewares/rateLimit.js)
 const { authIpLimiter, loginEmailLimiter, forgotPasswordIpLimiter, registerIpLimiter } = require('./middlewares/rateLimit');
 app.use(['/login', '/reset-password'], authIpLimiter);
