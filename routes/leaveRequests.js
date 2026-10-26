@@ -6,7 +6,7 @@ const { countWorkdays, hasOverlappingRequest } = require('../utils/workdays');
 const { sendMail } = require('../config/mailer');
 const { logAudit } = require('../utils/audit');
 const { sendError } = require('../utils/httpErrors');
-const { checkLeaveRules } = require('../utils/leaveRules');
+const { checkLeaveRules, frDate } = require('../utils/leaveRules');
 const router = express.Router();
 
 const VALID_HALVES = ['morning', 'afternoon'];
@@ -131,7 +131,7 @@ router.post('/leave-requests', authenticate, async (req, res) => {
       sendMail(
         manager.email,
         'Nouvelle demande de congé',
-        `${requester.firstName} ${requester.lastName} a demandé ${daysCount} jour(s) de congé du ${startDate} au ${endDate}.\n\nType : ${leaveType.label}\nCommentaire : ${comment || 'Aucun'}`
+        `${requester.firstName} ${requester.lastName} a demandé ${daysCount} jour(s) de congé du ${frDate(jour(startDate))} au ${frDate(jour(endDate))}.\n\nType : ${leaveType.label}\nCommentaire : ${comment || 'Aucun'}`
       ).catch(err => console.error('Erreur envoi email:', err));
     }
   } catch (error) {
@@ -219,7 +219,7 @@ router.patch('/leave-requests/:id/decision', authenticate, requireManager, async
     sendMail(
       updatedRequest.user.email,
       `Votre demande de congé a été ${decision === 'approved' ? 'approuvée' : 'refusée'}`,
-      `Votre demande du ${existingRequest.startDate.toLocaleDateString()} au ${existingRequest.endDate.toLocaleDateString()} a été ${statusLabel}.\n\nCommentaire du manager : ${managerComment || 'Aucun'}`
+      `Votre demande du ${frDate(jour(existingRequest.startDate))} au ${frDate(jour(existingRequest.endDate))} a été ${statusLabel}.\n\nCommentaire du manager : ${managerComment || 'Aucun'}`
     ).catch(err => console.error('Erreur envoi email:', err));
   } catch (error) {
     sendError(req, res, error);
@@ -348,7 +348,7 @@ router.patch('/leave-requests/:id/submit', authenticate, async (req, res) => {
       sendMail(
         manager.email,
         'Nouvelle demande de congé',
-        `${requester.firstName} ${requester.lastName} a demandé ${existingRequest.daysCount} jour(s) de congé du ${existingRequest.startDate.toLocaleDateString()} au ${existingRequest.endDate.toLocaleDateString()}.\n\nType : ${leaveType.label}\nCommentaire : ${existingRequest.comment || 'Aucun'}`
+        `${requester.firstName} ${requester.lastName} a demandé ${existingRequest.daysCount} jour(s) de congé du ${frDate(jour(existingRequest.startDate))} au ${frDate(jour(existingRequest.endDate))}.\n\nType : ${leaveType.label}\nCommentaire : ${existingRequest.comment || 'Aucun'}`
       ).catch(err => console.error('Erreur envoi email:', err));
     }
   } catch (error) {
