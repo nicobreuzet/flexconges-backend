@@ -71,6 +71,7 @@ router.post('/2fa/verify-setup', authenticate, async (req, res) => {
     // Refus si le 2FA est deja actif : sinon ce code regenererait les codes de recuperation
     // sans mot de passe (la reconfiguration passe par /2fa/disable).
     if (user.twoFactorEnabled) {
+      await logAudit(req, { companyId: req.user.companyId, userId: user.id, action: 'twofactor.verify_setup_refused', details: { raison: 'deja actif' } });
       return res.status(409).json({ error: 'Le 2FA est d\u00e9j\u00e0 activ\u00e9. D\u00e9sactivez-le avant de le reconfigurer (mot de passe requis).' });
     }
     if (!user.twoFactorSecret) {
