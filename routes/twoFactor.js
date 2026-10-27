@@ -48,11 +48,12 @@ router.post('/2fa/setup', authenticate, async (req, res) => {
       data: { twoFactorSecret: encryptSecret(secret), twoFactorEnabled: false }
     });
     const formatted = secret.match(/.{1,4}/g).join(' ');
-  // QR code : l'application d'authentification le scanne au lieu de recopier la clé à la main.
-  // Le secret est déjà envoyé au navigateur (champ "secret"), donc le QR code n'ajoute aucune exposition.
-  const otpauthUrl = authenticator.keyuri(current.email, 'FlexCongés', secret);
-  const qrCode = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 240 });
-  res.json({ secret: formatted, qrCode });  } catch (error) {
+    // QR code : l'application d'authentification le scanne au lieu de recopier la clé à la main.
+    // Le secret est déjà envoyé au navigateur (champ "secret"), donc le QR code n'ajoute aucune exposition.
+    const otpauthUrl = authenticator.keyuri(current.email, 'FlexCongés', secret);
+    const qrCode = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 240 });
+    res.json({ secret: formatted, qrCode });
+  } catch (error) {
     sendError(req, res, error);
   }
 });

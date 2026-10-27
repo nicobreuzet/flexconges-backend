@@ -275,7 +275,8 @@ router.post('/login/verify-2fa', async (req, res) => {
             where: { id: rc.id, used: false },
             data: { used: true, usedAt: new Date() }
           });
-          if (claimed.count === 1) { ok = true; methode = 'code de récupération'; }          break;
+          if (claimed.count === 1) { ok = true; methode = 'code de récupération'; }
+          break;
         }
       }
     }
@@ -297,7 +298,7 @@ router.post('/login/verify-2fa', async (req, res) => {
       return res.status(401).json({ error: 'Code invalide' });
     }
     // Succès : on remet les compteurs à zéro
-        // Le jeton temporaire est consomme ici : la cle primaire (jti) est unique, donc
+    // Le jeton temporaire est consomme ici : la cle primaire (jti) est unique, donc
     // si deux requetes arrivent en meme temps avec le meme jeton, une seule peut le reserver.
     try {
       await prisma.usedPendingToken.create({ data: { jti: decoded.jti, expiresAt: new Date(decoded.exp * 1000) } });
