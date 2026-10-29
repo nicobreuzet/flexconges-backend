@@ -13,6 +13,7 @@ const { reserveIpAttempt, clearIpAttempts } = require('../utils/twoFactorAttempt
 const { sendLockAlert } = require('../utils/twoFactorLockAlert');
 const { validatePassword } = require('../utils/passwordPolicy');
 const { normalizeEmail } = require('../utils/normalizeEmail');
+const { parseSiret } = require('../utils/normalizeSiret');
 const { hashInvitationToken } = require('../utils/invitations');
 const router = express.Router();
 
@@ -29,7 +30,7 @@ router.post('/register', async (req, res) => {
     return res.status(403).json({ error: 'Les inscriptions sont fermées pour le moment.' });
   }
   try {
-    const { companyName, email: rawEmail, password, firstName, lastName, invitationToken } = req.body;
+    const { companyName, email: rawEmail, password, firstName, lastName, invitationToken, siret: rawSiret } = req.body;
 
     if (!companyName || !rawEmail || !password || !firstName || !lastName) {
       return res.status(400).json({
@@ -44,6 +45,13 @@ router.post('/register', async (req, res) => {
     if (passwordError) {
       return res.status(400).json({ error: passwordError });
     }
+
+    // SIRET (facultatif) : 14 chiffres, valide AVANT la recherche de l'invitation pour ne rien consommer s'il est invalide.
+    const siretCheck = parseSiret(rawSiret);
+    if (siretCheck.error) {
+      return res.status(400).json({ error: siretCheck.error });
+    }
+    const siret = siretCheck.value;
 
     // Invitation : sans jeton valide, lie a cette adresse et encore libre, on n'ouvre pas de cabinet.
     // Un seul message pour tous les cas : on n'apprend rien a celui qui essaie.
@@ -73,7 +81,7 @@ router.post('/register', async (req, res) => {
       });
       if (claim.count !== 1) return null; // rien n'a ete ecrit : rien a annuler
 
-      const company = await tx.company.create({ data: { name: companyName } });
+      const company = await tx.company.create({ data: { name: companyName, siret } });
       await tx.companyInvitation.update({
         where: { id: invitation.id },
         data: { companyId: company.id }

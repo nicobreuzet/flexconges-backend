@@ -5,6 +5,7 @@ const { logAudit } = require('../utils/audit');
 const { getSecurityConfig, validateSecurityPatch } = require('../utils/securityConfig');
 const { getBrandingConfig, getRoleConfig, getRulesConfig, validateBrandingPatch, validateRolePatch, validateRulesPatch, mergeRoleConfig } = require('../utils/companyConfig');
 const { sendError } = require('../utils/httpErrors');
+const { parseSiret } = require('../utils/normalizeSiret');
 const router = express.Router();
 
 const ALLOWED_FIELDS = ['sector', 'siret', 'barreau', 'convention', 'taille', 'pays', 'adresse'];
@@ -46,6 +47,12 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
 
     for (const field of ALLOWED_FIELDS) {
       if (req.body[field] !== undefined) data[field] = req.body[field] || null;
+    }
+    // SIRET : valide et normalise (14 chiffres) ; vide = effacer. Ecrase la valeur brute posee par la boucle.
+    if (req.body.siret !== undefined) {
+      const siretCheck = parseSiret(req.body.siret);
+      if (siretCheck.error) return res.status(400).json({ error: siretCheck.error });
+      data.siret = siretCheck.value;
     }
 
     // Les 3 blocs de réglages (identité, rôles, règles) : validés par le serveur
