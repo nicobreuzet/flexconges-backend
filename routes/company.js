@@ -28,7 +28,7 @@ router.get('/company', authenticate, async (req, res) => {
 
     res.json({
       ...company,
-      brandingConfig: getBrandingConfig(company.brandingConfig),
+      brandingConfig: getBrandingConfig(company.brandingConfig, company.name),
       roleConfig: getRoleConfig(company.roleConfig),
       rulesConfig: getRulesConfig(company.rulesConfig),
       securityConfig: getSecurityConfig(company.securityConfig),
@@ -55,13 +55,13 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
     if (CONFIG_BLOCKS.some((bloc) => req.body[bloc] !== undefined)) {
       const current = await prisma.company.findUnique({
         where: { id: req.user.companyId },
-        select: { brandingConfig: true, roleConfig: true, rulesConfig: true }
+        select: { name: true, brandingConfig: true, roleConfig: true, rulesConfig: true }
       });
 
       if (req.body.brandingConfig !== undefined) {
         const check = validateBrandingPatch(req.body.brandingConfig);
         if (check.error) return res.status(400).json({ error: check.error });
-        const before = getBrandingConfig(current?.brandingConfig);
+        const before = getBrandingConfig(current?.brandingConfig, current?.name);
         data.brandingConfig = { ...before, ...check.value };
         configChanges.push({ action: 'company.branding_updated', details: { de: before, vers: data.brandingConfig } });
       }
@@ -162,7 +162,7 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
 
     res.json({
       ...company,
-      brandingConfig: getBrandingConfig(company.brandingConfig),
+      brandingConfig: getBrandingConfig(company.brandingConfig, company.name),
       roleConfig: getRoleConfig(company.roleConfig),
       rulesConfig: getRulesConfig(company.rulesConfig),
       securityConfig: getSecurityConfig(company.securityConfig),

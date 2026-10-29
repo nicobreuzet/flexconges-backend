@@ -71,8 +71,21 @@ const BRANDING_FIELDS = {
   accentColor: { check: cleanColor, msg: 'accentColor doit être une couleur au format #rrggbb' },
 };
 
-function getBrandingConfig(stored) {
-  return effective(DEFAULT_BRANDING, BRANDING_FIELDS, stored);
+function getBrandingConfig(stored, companyName) {
+  // Tant que le cabinet n'a rien enregistre, son identite porte le NOM DE LA SOCIETE (et non le nom
+  // de demonstration). Un nom enregistre par le cabinet l'emporte toujours. Le nom de repli est borne a
+  // 80 caracteres (sans couper un caractere en deux) et refuse s'il contient un caractere de controle.
+  let repli = null;
+  if (typeof companyName === 'string') {
+    let t = '';
+    for (const ch of companyName.trim()) {
+      if (t.length + ch.length > 80) break;
+      t += ch;
+    }
+    repli = cleanText(t, 1, 80);
+  }
+  const defaults = repli !== null ? { ...DEFAULT_BRANDING, name: repli } : DEFAULT_BRANDING;
+  return effective(defaults, BRANDING_FIELDS, stored);
 }
 function validateBrandingPatch(input) {
   return validatePatch(input, BRANDING_FIELDS, 'brandingConfig', 'Réglage d\'identité inconnu');

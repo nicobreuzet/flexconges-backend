@@ -17,7 +17,8 @@ describe('Réglages du cabinet : identité, rôles, règles (C9)', () => {
     const c = await createCompanyWithManager('CC-defaut');
     const res = await getCompany(c.token);
     expect(res.status).toBe(200);
-    expect(res.body.brandingConfig).toEqual(DEFAULT_BRANDING);
+    // Une societe neuve porte desormais le nom de la societe (et non le nom de demonstration).
+    expect(res.body.brandingConfig).toEqual({ ...DEFAULT_BRANDING, name: c.company.name });
     expect(res.body.rulesConfig).toEqual(DEFAULT_RULES);
     expect(res.body.roleConfig.manager.singular).toBe('Manager');
     expect(res.body.roleConfig.manager.permissions.canAdmin).toBe(true);
