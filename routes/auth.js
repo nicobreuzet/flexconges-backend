@@ -408,4 +408,23 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// Verifie un jeton de reinitialisation SANS le consommer ni rien ecrire (le front l'appelle a l'ouverture du lien).
+// Le jeton arrive dans le CORPS (jamais dans l'adresse, qui est journalisee). Meme recherche et meme message que /reset-password.
+// Couverte par le limiteur de /reset-password (prefixe) : 30 echecs par 15 minutes et par adresse.
+router.post('/reset-password/verify', async (req, res) => {
+  try {
+    const token = req.body && req.body.token;
+    if (typeof token !== 'string' || !token) {
+      return res.status(400).json({ error: 'Lien invalide ou expir\u00e9' });
+    }
+    const user = await prisma.user.findUnique({ where: { resetToken: token } });
+    if (!user || !user.resetTokenExpires || user.resetTokenExpires < new Date()) {
+      return res.status(400).json({ error: 'Lien invalide ou expir\u00e9' });
+    }
+    res.json({ valid: true });
+  } catch (error) {
+    sendError(req, res, error);
+  }
+});
+
 module.exports = router;
