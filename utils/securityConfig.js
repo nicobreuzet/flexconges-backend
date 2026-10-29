@@ -23,7 +23,7 @@ function validateSecurityPatch(input) {
   for (const key of Object.keys(input)) {
     if (key === 'sessionInactivityHours') {
       if (!ALLOWED_INACTIVITY_HOURS.includes(input[key])) {
-        return { error: `sessionInactivityHours doit valoir ${ALLOWED_INACTIVITY_HOURS.join(', ')} (heures)` };
+        return { error: `La dur\u00e9e d\u2019inactivit\u00e9 avant d\u00e9connexion doit valoir ${ALLOWED_INACTIVITY_HOURS.join(', ')} (heures).` };
       }
       value[key] = input[key];
     } else {

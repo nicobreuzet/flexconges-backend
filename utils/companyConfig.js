@@ -6,6 +6,7 @@
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 const ROLE_KEYS = ['manager', 'employee'];
+const ROLE_LABELS_FR = { manager: 'manager', employee: 'employ\u00e9' };
 
 function isPlainObject(v) {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -63,12 +64,12 @@ const DEFAULT_BRANDING = {
 };
 
 const BRANDING_FIELDS = {
-  name: { check: (v) => cleanText(v, 1, 80), msg: 'name doit être un texte de 1 à 80 caractères' },
-  sidebarSubtitle: { check: (v) => cleanText(v, 0, 80), msg: 'sidebarSubtitle doit être un texte de 80 caractères au plus' },
-  welcomeMsg: { check: (v) => cleanText(v, 0, 200), msg: 'welcomeMsg doit être un texte de 200 caractères au plus' },
-  teamLabel: { check: (v) => cleanText(v, 1, 40), msg: 'teamLabel doit être un texte de 1 à 40 caractères' },
-  primaryColor: { check: cleanColor, msg: 'primaryColor doit être une couleur au format #rrggbb' },
-  accentColor: { check: cleanColor, msg: 'accentColor doit être une couleur au format #rrggbb' },
+  name: { check: (v) => cleanText(v, 1, 80), msg: 'Le nom de l\u2019organisation doit \u00eatre un texte de 1 \u00e0 80 caract\u00e8res.' },
+  sidebarSubtitle: { check: (v) => cleanText(v, 0, 80), msg: 'Le sous-titre doit contenir 80 caract\u00e8res au plus.' },
+  welcomeMsg: { check: (v) => cleanText(v, 0, 200), msg: 'Le message d\u2019accueil doit contenir 200 caract\u00e8res au plus.' },
+  teamLabel: { check: (v) => cleanText(v, 1, 40), msg: 'Le libell\u00e9 d\u2019\u00e9quipe doit \u00eatre un texte de 1 \u00e0 40 caract\u00e8res.' },
+  primaryColor: { check: cleanColor, msg: 'La couleur principale doit \u00eatre au format #rrggbb.' },
+  accentColor: { check: cleanColor, msg: 'La couleur d\u2019accent doit \u00eatre au format #rrggbb.' },
 };
 
 function getBrandingConfig(stored, companyName) {
@@ -106,11 +107,11 @@ const DEFAULT_ROLES = {
 };
 
 const ROLE_FIELDS = {
-  singular: { check: (v) => cleanText(v, 1, 40), msg: 'singular doit être un texte de 1 à 40 caractères' },
-  plural: { check: (v) => cleanText(v, 1, 40), msg: 'plural doit être un texte de 1 à 40 caractères' },
-  feminine: { check: (v) => cleanText(v, 1, 40), msg: 'feminine doit être un texte de 1 à 40 caractères' },
-  icon: { check: (v) => cleanText(v, 1, 16), msg: 'icon doit être un texte de 1 à 16 caractères' },
-  color: { check: cleanColor, msg: 'color doit être une couleur au format #rrggbb' },
+  singular: { check: (v) => cleanText(v, 1, 40), msg: 'le libell\u00e9 au singulier doit \u00eatre un texte de 1 \u00e0 40 caract\u00e8res.' },
+  plural: { check: (v) => cleanText(v, 1, 40), msg: 'le libell\u00e9 au pluriel doit \u00eatre un texte de 1 \u00e0 40 caract\u00e8res.' },
+  feminine: { check: (v) => cleanText(v, 1, 40), msg: 'le libell\u00e9 au f\u00e9minin doit \u00eatre un texte de 1 \u00e0 40 caract\u00e8res.' },
+  icon: { check: (v) => cleanText(v, 1, 16), msg: 'l\u2019ic\u00f4ne doit \u00eatre un texte de 1 \u00e0 16 caract\u00e8res.' },
+  color: { check: cleanColor, msg: 'la couleur doit \u00eatre au format #rrggbb.' },
 };
 
 // Envoyés par le front mais jamais pris en compte (ni refusés, pour ne pas casser l'enregistrement).
@@ -138,7 +139,7 @@ function validateRolePatch(input) {
       raw = { ...raw };
       for (const k of ROLE_IGNORED_KEYS) delete raw[k];
     }
-    const res = validatePatch(raw, ROLE_FIELDS, `roleConfig.${role}`, `Réglage de rôle inconnu (${role})`, `${role} : `);
+    const res = validatePatch(raw, ROLE_FIELDS, `roleConfig.${role}`, `Réglage de rôle inconnu (${role})`, `R\u00f4le ${ROLE_LABELS_FR[role]} : `);
     if (res.error) return res;
     value[role] = res.value;
   }
@@ -168,10 +169,10 @@ const DEFAULT_RULES = {
 };
 
 const RULES_FIELDS = {
-  noticeDays: { check: (v) => cleanInt(v, 0, 365), msg: 'noticeDays doit être un nombre entier de 0 à 365 (0 = aucun préavis)' },
-  maxSimultaneousAbsences: { check: (v) => cleanInt(v, 0, 999), msg: 'maxSimultaneousAbsences doit être un nombre entier de 0 à 999 (0 = pas de limite)' },
-  carryOverDate: { check: (v) => cleanText(v, 0, 40), msg: 'carryOverDate doit être un texte de 40 caractères au plus' },
-  workflowLevels: { check: (v) => (v === 1 ? 1 : null), msg: 'Le second niveau de validation n\'est pas encore disponible : workflowLevels doit valoir 1' },
+  noticeDays: { check: (v) => cleanInt(v, 0, 365), msg: 'Le pr\u00e9avis doit \u00eatre un nombre entier de jours, de 0 \u00e0 365 (0 = aucun pr\u00e9avis).' },
+  maxSimultaneousAbsences: { check: (v) => cleanInt(v, 0, 999), msg: 'Le nombre maximum d\u2019absents simultan\u00e9s doit \u00eatre un nombre entier de 0 \u00e0 999 (0 = pas de limite).' },
+  carryOverDate: { check: (v) => cleanText(v, 0, 40), msg: 'La date de report des cong\u00e9s doit contenir 40 caract\u00e8res au plus.' },
+  workflowLevels: { check: (v) => (v === 1 ? 1 : null), msg: 'Le second niveau de validation n\u2019est pas encore disponible : seul le niveau 1 est possible.' },
 };
 
 function getRulesConfig(stored) {

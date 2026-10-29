@@ -94,7 +94,7 @@ router.patch('/company', authenticate, requireManager, async (req, res) => {
     // (la boucle ALLOWED_FIELDS transformerait false en null).
     if (req.body.requireTwoFactor !== undefined) {
       if (typeof req.body.requireTwoFactor !== 'boolean') {
-        return res.status(400).json({ error: 'requireTwoFactor doit être vrai ou faux' });
+        return res.status(400).json({ error: 'L\u2019obligation du 2FA doit \u00eatre vraie ou fausse.' });
       }
       if (req.body.requireTwoFactor === true) {
         // Garde-fou : un manager sans 2FA qui l'impose à tous se bloquerait lui-même
