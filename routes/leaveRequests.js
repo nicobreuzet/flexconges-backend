@@ -425,6 +425,24 @@ router.delete('/leave-requests/:id', authenticate, async (req, res) => {
   }
 });
 
+// Calendrier d'equipe : ce qu'un EMPLOYE recoit des demandes de ses collegues (donnees minimales).
+// Types dont le libelle reste visible ; tout le reste (arret maladie, conge exceptionnel, types crees par le
+// cabinet...) apparait comme 'Absence'. Les commentaires et l'adresse e-mail ne sont jamais envoyes.
+const VISIBLE_TYPE_CODES = ['CP', 'RTT', 'TT', 'CSS'];
+function colleagueView(r) {
+  const visible = VISIBLE_TYPE_CODES.includes(r.leaveType.code);
+  return {
+    ...r,
+    comment: null,
+    managerComment: null,
+    leaveTypeId: visible ? r.leaveTypeId : null,
+    leaveType: visible
+      ? { id: r.leaveType.id, code: r.leaveType.code, label: r.leaveType.label, color: r.leaveType.color }
+      : { id: null, code: 'ABS', label: 'Absence', color: '#94a3b8' },
+    user: { id: r.user.id, firstName: r.user.firstName, lastName: r.user.lastName, email: '' }
+  };
+}
+
 // Toutes les demandes de la société (pour le calendrier d'équipe)
 router.get('/leave-requests/all', authenticate, async (req, res) => {
   const requests = await prisma.leaveRequest.findMany({
@@ -438,7 +456,9 @@ router.get('/leave-requests/all', authenticate, async (req, res) => {
     },
     orderBy: { startDate: 'asc' }
   });
-  res.json(requests);
+  // Un responsable recoit tout ; un employe recoit ses propres demandes intactes et, pour ses collegues, la vue minimale.
+  if (req.user.role === 'manager') return res.json(requests);
+  res.json(requests.map((r) => (r.userId === req.user.userId ? r : colleagueView(r))));
 });
 
 module.exports = router;
