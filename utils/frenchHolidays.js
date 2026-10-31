@@ -46,7 +46,8 @@ function frenchHolidays(year) {
 // Cree les jours feries de l'annee en cours et des `yearsAhead` suivantes pour une societe.
 // Saute ceux qui existent deja (la table n'a pas de contrainte d'unicite). Renvoie le nombre cree.
 // `client` peut etre `prisma` ou le client d'une transaction (tx).
-async function createHolidaysForCompany(client, companyId, now = new Date(), yearsAhead = 2) {
+// dryRun : compte ce qui SERAIT cree sans rien ecrire (simulation de scripts/add-french-holidays.js).
+async function createHolidaysForCompany(client, companyId, now = new Date(), yearsAhead = 2, { dryRun = false } = {}) {
   if (!Number.isInteger(companyId)) throw new Error('companyId manquant');
   const first = now.getUTCFullYear();
   const wanted = [];
@@ -56,7 +57,7 @@ async function createHolidaysForCompany(client, companyId, now = new Date(), yea
   const data = wanted
     .filter((h) => !have.has(h.date))
     .map((h) => ({ date: new Date(h.date + 'T00:00:00.000Z'), label: h.label, companyId }));
-  if (data.length > 0) await client.holiday.createMany({ data });
+  if (data.length > 0 && !dryRun) await client.holiday.createMany({ data });
   return data.length;
 }
 
