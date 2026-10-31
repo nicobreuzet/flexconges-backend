@@ -271,7 +271,7 @@ describe('Demandes de congé avec demi-journées', () => {
       .post('/leave-requests')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        startDate: '2028-05-01', endDate: '2028-05-05', leaveTypeId: cpId,
+        startDate: '2028-05-29', endDate: '2028-06-02', leaveTypeId: cpId,
         endHalf: 'morning'
       });
 
@@ -284,7 +284,7 @@ describe('Demandes de congé avec demi-journées', () => {
       .post('/leave-requests')
       .set('Authorization', `Bearer ${token}`)
       .send({
-        startDate: '2028-05-25', endDate: '2028-05-26', leaveTypeId: cpId,
+        startDate: '2028-06-15', endDate: '2028-06-16', leaveTypeId: cpId,
         startHalf: 'afternoon'
       });
 

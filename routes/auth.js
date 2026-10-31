@@ -14,6 +14,7 @@ const { sendLockAlert } = require('../utils/twoFactorLockAlert');
 const { validatePassword } = require('../utils/passwordPolicy');
 const { normalizeEmail } = require('../utils/normalizeEmail');
 const { parseSiret } = require('../utils/normalizeSiret');
+const { createHolidaysForCompany } = require('../utils/frenchHolidays');
 const { hashInvitationToken } = require('../utils/invitations');
 const router = express.Router();
 
@@ -88,6 +89,7 @@ router.post('/register', async (req, res) => {
       });
 
       await createDefaultLeaveTypes(tx, company.id);
+      await createHolidaysForCompany(tx, company.id); // jours feries francais : annee en cours et deux suivantes
 
       const user = await tx.user.create({
         data: {
