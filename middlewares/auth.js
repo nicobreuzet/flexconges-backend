@@ -42,6 +42,7 @@ async function authenticate(req, res, next) {
       where: { id: decoded.userId },
       select: {
         isActive: true,
+        role: true,
         twoFactorEnabled: true,
         companyId: true,
         company: { select: { requireTwoFactor: true, securityConfig: true } }
@@ -77,7 +78,9 @@ async function authenticate(req, res, next) {
       });
     }
 
-    req.user = decoded;
+    // Le role vient de la BASE (comme l'etat actif du compte), pas du jeton : une promotion ou une
+    // retrogradation s'applique des la requete suivante, sans attendre l'expiration du jeton.
+    req.user = { ...decoded, role: user.role };
     req.securityConfig = security;
     next();
   } catch (error) {
