@@ -18,7 +18,7 @@ const ROLE_ERROR = 'R\u00f4le invalide : manager ou employee attendu.';
 const SAFE_USER_FIELDS = {
   id: true, email: true, firstName: true, lastName: true,
   role: true, isActive: true, phone: true, team: true, teamId: true,
-  address: true, startDate: true, createdAt: true
+  address: true, startDate: true, createdAt: true, managerId: true
 };
 
 // Durée de validité du lien d'invitation envoyé à un nouveau collaborateur : 7 jours
@@ -44,6 +44,22 @@ async function resolveTeamFields(teamId, companyId) {
   return { teamId: team.id, team: team.name };
 }
 
+// Responsable direct : managerId absent = ne rien changer ; null = retirer ; sinon un utilisateur ACTIF de la
+// MEME societe, au role manager, different de la personne (selfId) et qui n'a pas deja cette personne pour responsable.
+const MANAGER_ERROR = 'Responsable direct invalide : un responsable actif de votre cabinet est attendu.';
+async function resolveManagerField(managerId, companyId, selfId) {
+  if (managerId === undefined) return {};
+  if (managerId === null) return { managerId: null };
+  if (!Number.isInteger(managerId) || managerId <= 0 || managerId === selfId) return { error: MANAGER_ERROR };
+  const candidate = await prisma.user.findFirst({
+    where: { id: managerId, companyId, isActive: true, role: 'manager' },
+    select: { id: true, managerId: true }
+  });
+  if (!candidate) return { error: MANAGER_ERROR };
+  if (selfId !== undefined && candidate.managerId === selfId) return { error: MANAGER_ERROR };
+  return { managerId: candidate.id };
+}
+
 router.get('/me', authenticate, async (req, res) => {
   // Liste de champs AUTORISES (et non 'tout sauf le mot de passe') : jamais de jeton ni de secret.
   const user = await prisma.user.findUnique({ where: { id: req.user.userId }, select: SAFE_USER_FIELDS });
@@ -65,7 +81,7 @@ router.get('/users', authenticate, requireManager, async (req, res) => {
 router.post('/users', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { email: rawEmail, firstName, lastName, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
+    const { email: rawEmail, firstName, lastName, role, phone, teamId, address, startDate, cpAlloc, rttAlloc, managerId } = req.body;
 
     if (!rawEmail || !firstName || !lastName || !role) {
       return res.status(400).json({ error: 'Email, prénom, nom et rôle sont obligatoires' });
@@ -79,6 +95,8 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
     }
 
     const teamFields = await resolveTeamFields(teamId, companyId);
+    const managerFields = await resolveManagerField(managerId, companyId);
+    if (managerFields.error) return res.status(400).json({ error: managerFields.error });
 
     // Mot de passe aléatoire, jamais révélé à personne : le champ est obligatoire en base,
     // mais l'accès réel au compte passera par le lien d'invitation ci-dessous.
@@ -98,7 +116,8 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
         address: address || null,
         startDate: startDate ? new Date(startDate) : null,
         companyId,
-        ...teamFields
+        ...teamFields,
+        ...managerFields
       },
       select: SAFE_USER_FIELDS
     });
@@ -145,7 +164,7 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 router.put('/users/:id', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { firstName, lastName, email: rawEmail, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
+    const { firstName, lastName, email: rawEmail, role, phone, teamId, address, startDate, cpAlloc, rttAlloc, managerId } = req.body;
     if (role !== undefined && !VALID_ROLES.includes(role)) {
       return res.status(400).json({ error: ROLE_ERROR });
     }
@@ -160,6 +179,8 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Utilisateur introuvable' });
 
     const teamFields = await resolveTeamFields(teamId, companyId);
+    const managerFields = await resolveManagerField(managerId, companyId, existing.id);
+    if (managerFields.error) return res.status(400).json({ error: managerFields.error });
 
     const user = await prisma.user.update({
       where: { id: existing.id },
@@ -168,7 +189,8 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
         phone: phone || null,
         address: address || null,
         startDate: startDate ? new Date(startDate) : null,
-        ...teamFields
+        ...teamFields,
+        ...managerFields
       },
       select: SAFE_USER_FIELDS
     });
@@ -176,6 +198,9 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
     // Journal d'audit : un changement de rôle est enregistré à part, le reste est regroupé
     if (role !== undefined && role !== existing.role) {
       await logAudit(req, { companyId, userId: req.user.userId, action: 'user.role_changed', details: { cibleId: existing.id, cible: existing.email, de: existing.role, vers: role } });
+    }
+    if (managerFields.managerId !== undefined && managerFields.managerId !== existing.managerId) {
+      await logAudit(req, { companyId, userId: req.user.userId, action: 'user.manager_changed', details: { cibleId: existing.id, cible: existing.email, de: existing.managerId, vers: managerFields.managerId } });
     }
     const champsModifies = [];
     for (const f of ['firstName', 'lastName', 'email']) {

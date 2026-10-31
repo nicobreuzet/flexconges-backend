@@ -7,7 +7,7 @@ const { createCompanyWithManager, createEmployee } = require('./helpers');
 jest.setTimeout(60000);
 
 const auth = (t) => ({ Authorization: `Bearer ${t}` });
-const CHAMPS = ['address', 'createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'phone', 'role', 'startDate', 'team', 'teamId'];
+const CHAMPS = ['address', 'createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'managerId', 'phone', 'role', 'startDate', 'team', 'teamId'];
 
 describe('GET /me', () => {
   test('ne renvoie que les champs autorises, sans jeton de reinitialisation ni secret 2FA', async () => {
