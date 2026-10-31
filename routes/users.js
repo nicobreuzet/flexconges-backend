@@ -11,6 +11,10 @@ const { sendError } = require('../utils/httpErrors');
 const { normalizeEmail } = require('../utils/normalizeEmail');
 const router = express.Router();
 
+// Roles acceptes (creation et modification) : rien d'autre, sinon le compte ne serait ni responsable ni employe.
+const VALID_ROLES = ['manager', 'employee'];
+const ROLE_ERROR = 'R\u00f4le invalide : manager ou employee attendu.';
+
 const SAFE_USER_FIELDS = {
   id: true, email: true, firstName: true, lastName: true,
   role: true, isActive: true, phone: true, team: true, teamId: true,
@@ -41,9 +45,9 @@ async function resolveTeamFields(teamId, companyId) {
 }
 
 router.get('/me', authenticate, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
-  const { password, ...userWithoutPassword } = user;
-  res.json(userWithoutPassword);
+  // Liste de champs AUTORISES (et non 'tout sauf le mot de passe') : jamais de jeton ni de secret.
+  const user = await prisma.user.findUnique({ where: { id: req.user.userId }, select: SAFE_USER_FIELDS });
+  res.json(user);
 });
 
 router.get('/users', authenticate, requireManager, async (req, res) => {
@@ -65,6 +69,9 @@ router.post('/users', authenticate, requireManager, async (req, res) => {
 
     if (!rawEmail || !firstName || !lastName || !role) {
       return res.status(400).json({ error: 'Email, prénom, nom et rôle sont obligatoires' });
+    }
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: ROLE_ERROR });
     }
     const email = normalizeEmail(rawEmail);
     if (!email) {
@@ -139,6 +146,9 @@ router.put('/users/:id', authenticate, requireManager, async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const { firstName, lastName, email: rawEmail, role, phone, teamId, address, startDate, cpAlloc, rttAlloc } = req.body;
+    if (role !== undefined && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: ROLE_ERROR });
+    }
 
     let email;
     if (rawEmail !== undefined) {
